@@ -65,8 +65,9 @@ class TestCodeParser:
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_python.py")
         calls = [e for e in edges if e.kind == "CALLS"]
         call_targets = {e.target for e in calls}
-        assert "_validate_token" in call_targets
-        assert "authenticate" in call_targets
+        # _resolve_call_targets qualifies same-file definitions
+        assert any("_validate_token" in t for t in call_targets)
+        assert any("authenticate" in t for t in call_targets)
 
     def test_parse_typescript_file(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_typescript.ts")
@@ -113,13 +114,13 @@ class TestCodeParser:
         ]
         assert len(resolved_calls) == 1
 
-    def test_unresolved_calls_stay_bare(self):
-        """Method calls and unknown calls should remain as bare names."""
+    def test_same_file_calls_resolved(self):
+        """Same-file call targets should be resolved to qualified names."""
         _, edges = self.parser.parse_file(FIXTURES / "sample_python.py")
         calls = [e for e in edges if e.kind == "CALLS"]
-        # self._validate_token() is a method call — can't resolve the target file
-        bare_calls = [e for e in calls if e.target == "_validate_token"]
-        assert len(bare_calls) >= 1
+        # _validate_token is defined in the same file, so it should be qualified
+        resolved_calls = [e for e in calls if "_validate_token" in e.target and "::" in e.target]
+        assert len(resolved_calls) >= 1
 
     def test_calls_edge_decorated_function_resolution(self):
         """Decorated functions should be in defined_names and resolvable as call targets."""
