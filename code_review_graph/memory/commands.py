@@ -217,33 +217,96 @@ def memory_explain_command(args: argparse.Namespace) -> None:
 def memory_prepare_context_command(args: argparse.Namespace) -> None:
     """Assemble a focused context pack for the given natural-language task.
 
-    This is the core product feature. Returns a ``TaskContextPack`` containing
-    the relevant features, modules, files, tests, warnings, and a task summary
-    — ready to be injected into a fresh Claude Code session.
-
-    TODO(T7): wire context_builder.build_context() + overrides here.
+    Pipeline: scanner → classifier → context_builder → output (text or JSON).
+    Runs the classifier fresh each time so the pack always reflects the current
+    repo state, even if ``memory init`` has not been run.
     """
-    repo_root = _resolve_repo_root(args)
-    task: str = args.task
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-    if not task.strip():
+    from .scanner import scan_repo
+    from .classifier import classify_features, classify_modules
+    from .context_builder import build_context_pack
+
+    repo_root = _resolve_repo_root(args)
+    task: str = args.task.strip()
+    as_json: bool = getattr(args, "json", False)
+
+    if not task:
         print("Error: task description cannot be empty.", flush=True)
         raise SystemExit(1)
 
+    # Classify — fast, deterministic, no LLMs
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    pack = build_context_pack(task, features, modules)
+
+    if as_json:
+        _print_pack_json(pack)
+    else:
+        _print_pack_text(pack)
+
+
+def _print_pack_text(pack) -> None:
+    """Print a TaskContextPack in human-readable format."""
     print(f"repo-memory: prepare-context")
-    print(f"  repo root : {repo_root}")
-    print(f"  task      : {task}")
+    print(f"  task: {pack.task}")
     print()
-    print("  [not yet implemented]")
-    print("  Will return:")
-    print("    relevant features")
-    print("    relevant modules")
-    print("    relevant files")
-    print("    relevant tests")
-    print("    warnings / safe-boundary notes")
-    print("    task summary for Claude Code")
+
+    if pack.relevant_features:
+        print("  Relevant features:")
+        for name in pack.relevant_features:
+            print(f"    - {name}")
+        print()
+
+    if pack.relevant_modules:
+        print("  Relevant modules:")
+        for name in pack.relevant_modules:
+            print(f"    - {name}")
+        print()
+
+    if pack.relevant_files:
+        print("  Files to inspect:")
+        for f in pack.relevant_files:
+            print(f"    - {f}")
+        print()
+
+    if pack.relevant_tests:
+        print("  Related tests:")
+        for t in pack.relevant_tests:
+            print(f"    - {t}")
+        print()
+
+    if pack.warnings:
+        print("  Warnings:")
+        for w in pack.warnings:
+            print(f"    ! {w}")
+        print()
+
+    print("  Summary:")
+    for line in pack.summary.splitlines():
+        print(f"    {line}")
     print()
-    print("  Run `memory init` first to generate artifacts.")
+
+    if pack.is_empty():
+        print("  No relevant context found. Run `memory init` to generate memory artifacts.")
+
+
+def _print_pack_json(pack) -> None:
+    """Print a TaskContextPack as JSON."""
+    import json
+    data = {
+        "task": pack.task,
+        "relevant_features": pack.relevant_features,
+        "relevant_modules": pack.relevant_modules,
+        "relevant_files": pack.relevant_files,
+        "relevant_tests": pack.relevant_tests,
+        "warnings": pack.warnings,
+        "summary": pack.summary,
+    }
+    print(json.dumps(data, indent=2))
 
 
 # ---------------------------------------------------------------------------
