@@ -256,19 +256,29 @@ def memory_explain_command(args: argparse.Namespace) -> None:
     Looks up the closest matching memory artifact for the given target
     and prints a grounded, concise explanation suitable for pasting into
     a Claude Code session.
-
-    TODO(T4+): load and display the relevant .agent-memory/ artifact here.
     """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from .classifier import classify_features, classify_modules
+    from .lookup import explain_match, match_target
+    from .scanner import scan_repo
+
     repo_root = _resolve_repo_root(args)
+    agent_memory = _agent_memory_root(repo_root)
     target: str = args.target
 
     print(f"repo-memory: explain")
     print(f"  repo root : {repo_root}")
     print(f"  target    : {target}")
     print()
-    print("  [not yet implemented]")
-    print(f"  Will explain '{target}' using generated memory artifacts.")
-    print("  Run `memory init` first to generate artifacts.")
+
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    match = match_target(target, agent_memory, features, modules)
+    print(explain_match(match, agent_memory))
 
 
 # ---------------------------------------------------------------------------
@@ -385,19 +395,29 @@ def memory_changed_command(args: argparse.Namespace) -> None:
 
     Surfaces what changed recently in the specified area so a developer
     starting a task can understand the current state without reading git log.
-
-    TODO(T4+): load changes/recent.md and filter by target area.
     """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from .classifier import classify_features, classify_modules
+    from .lookup import changed_match, match_target
+    from .scanner import scan_repo
+
     repo_root = _resolve_repo_root(args)
+    agent_memory = _agent_memory_root(repo_root)
     target: str = args.target
 
     print(f"repo-memory: changed")
     print(f"  repo root : {repo_root}")
     print(f"  target    : {target}")
     print()
-    print("  [not yet implemented]")
-    print(f"  Will show recent changes affecting '{target}'.")
-    print("  Run `memory init` first to generate change artifacts.")
+
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    match = match_target(target, agent_memory, features, modules)
+    print(changed_match(match, agent_memory))
 
 
 # ---------------------------------------------------------------------------

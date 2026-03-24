@@ -9,10 +9,16 @@ generate_manifest(scan, artifacts)              -> dict   (JSON-serialisable man
 save_manifest(manifest_dict, metadata_dir)      -> WriteStatus
 save_sources_json(features, modules, dir)       -> WriteStatus
 save_confidence_json(features, modules, dir)    -> WriteStatus
+save_freshness_json(freshness_data, dir)        -> WriteStatus
+
+load_freshness_json(metadata_dir)               -> dict | None
+load_sources_json(metadata_dir)                 -> dict | None
+load_confidence_json(metadata_dir)              -> dict | None
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -178,3 +184,55 @@ def save_confidence_json(
     status = write_json_if_changed(path, data)
     logger.debug("%s confidence.json (%d features, %d modules)", status, len(features), len(modules))
     return status
+
+
+# ---------------------------------------------------------------------------
+# Loaders — read existing metadata from disk
+# ---------------------------------------------------------------------------
+
+
+def load_freshness_json(metadata_dir: Path) -> dict[str, Any] | None:
+    """Load ``freshness.json`` from *metadata_dir*, or return ``None`` if absent.
+
+    Args:
+        metadata_dir: Absolute path to ``.agent-memory/metadata/``.
+
+    Returns:
+        Parsed dict, or ``None`` if the file does not exist or cannot be parsed.
+    """
+    return _load_json(metadata_dir / "freshness.json")
+
+
+def load_sources_json(metadata_dir: Path) -> dict[str, Any] | None:
+    """Load ``sources.json`` (file → feature/module index) from *metadata_dir*.
+
+    Args:
+        metadata_dir: Absolute path to ``.agent-memory/metadata/``.
+
+    Returns:
+        Parsed dict with a ``"sources"`` key, or ``None`` if absent.
+    """
+    return _load_json(metadata_dir / "sources.json")
+
+
+def load_confidence_json(metadata_dir: Path) -> dict[str, Any] | None:
+    """Load ``confidence.json`` (per-artifact confidence scores) from *metadata_dir*.
+
+    Args:
+        metadata_dir: Absolute path to ``.agent-memory/metadata/``.
+
+    Returns:
+        Parsed dict with ``"features"`` and ``"modules"`` keys, or ``None``.
+    """
+    return _load_json(metadata_dir / "confidence.json")
+
+
+def _load_json(path: Path) -> dict[str, Any] | None:
+    """Read and parse a JSON file; return ``None`` on any error."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Could not load %s: %s", path.name, exc)
+        return None

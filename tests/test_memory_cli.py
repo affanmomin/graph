@@ -140,7 +140,7 @@ class TestMemoryExplain:
         out = run_cli_stdout("memory", "explain", "authentication", "--repo", str(tmp_path))
         assert "explain" in out
         assert "authentication" in out
-        assert "not yet implemented" in out
+        assert "not yet implemented" not in out
 
     def test_shows_target_in_output(self, tmp_path):
         out = run_cli_stdout("memory", "explain", "src/api/routes.py", "--repo", str(tmp_path))
@@ -271,7 +271,7 @@ class TestMemoryChanged:
         out = run_cli_stdout("memory", "changed", "src/auth", "--repo", str(tmp_path))
         assert "changed" in out
         assert "src/auth" in out
-        assert "not yet implemented" in out
+        assert "not yet implemented" not in out
 
     def test_missing_target_exits_nonzero(self):
         buf = StringIO()
