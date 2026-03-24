@@ -28,6 +28,7 @@ from .models import (
     ModuleMemory,
     TaskContextPack,
 )
+from .classifier import classify_features, classify_modules
 from .writer import (
     MEMORY_SUBDIRS,
     WriteStatus,
@@ -39,6 +40,9 @@ from .writer import (
 )
 
 __all__ = [
+    # classifier
+    "classify_features",
+    "classify_modules",
     # models
     "ArtifactMetadata",
     "FeatureMemory",
