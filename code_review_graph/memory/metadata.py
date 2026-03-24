@@ -1,33 +1,70 @@
 """Metadata management for ``.agent-memory/`` artifacts.
 
-Responsible for reading and writing the metadata files that track freshness,
-confidence, and source traceability for every generated memory artifact.
+Responsible for generating and writing the manifest and supporting metadata
+files that track freshness, confidence, and source traceability.
 
-Metadata files live under ``.agent-memory/metadata/`` and are committed to
-Git alongside the artifacts they describe. They allow agents and humans to:
-- detect stale artifacts without re-reading all source files
-- understand how confident to be in a given summary
-- trace which source files contributed to each artifact
-
-Metadata file layout:
-    .agent-memory/metadata/
-        manifest.json    -- overall index of all artifacts (MemoryManifest)
-        freshness.json   -- per-artifact last-generated and stale flags
-        confidence.json  -- per-artifact confidence scores
-        sources.json     -- per-artifact source file lists
-
-Design constraints:
-- JSON output must be sorted and pretty-printed for stable Git diffs
-- all datetime values serialised as ISO 8601 UTC strings
-- reading must tolerate missing files (first run, partial generation)
-
-TODO(metadata): implement ``load_manifest(agent_memory_root)`` -> MemoryManifest
-TODO(metadata): implement ``save_manifest(manifest, agent_memory_root)``
-TODO(metadata): implement ``load_artifact_metadata(artifact_path)`` -> ArtifactMetadata
-TODO(metadata): implement ``mark_stale(artifact_paths, agent_memory_root)``
-TODO(metadata): implement ``update_freshness(artifact, agent_memory_root)``
+Public API (this ticket)
+------------------------
+generate_manifest(scan, artifacts)  -> dict   (JSON-serialisable manifest)
+save_manifest(manifest_dict, dirs)  -> WriteStatus
 """
 
 from __future__ import annotations
 
-# TODO(metadata): imports will be added when implementation begins
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .scanner import RepoScan
+from .writer import WriteStatus, write_json_if_changed
+
+logger = logging.getLogger(__name__)
+
+MANIFEST_VERSION = "1"
+
+
+def generate_manifest(
+    scan: RepoScan,
+    artifacts: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Build the manifest dict for ``.agent-memory/metadata/manifest.json``.
+
+    Args:
+        scan:      The completed :class:`~scanner.RepoScan` for this repo.
+        artifacts: List of ``{"artifact_id": ..., "relative_path": ...,
+                   "artifact_type": ...}`` dicts describing generated files.
+
+    Returns:
+        JSON-serialisable dict suitable for passing to :func:`save_manifest`.
+    """
+    return {
+        "version": MANIFEST_VERSION,
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "repo_root": str(scan.repo_root),
+        "source_roots": sorted(scan.source_dirs),
+        "discovered_languages": sorted(scan.languages),
+        "discovered_docs_dirs": sorted(scan.docs_dirs),
+        "discovered_test_dirs": sorted(scan.test_dirs),
+        "config_files": sorted(scan.config_files),
+        "framework_hints": sorted(scan.framework_hints),
+        "scan_confidence": scan.confidence,
+        "generated_artifacts": sorted(artifacts, key=lambda a: a.get("relative_path", "")),
+    }
+
+
+def save_manifest(manifest: dict[str, Any], metadata_dir: Path) -> WriteStatus:
+    """Write *manifest* to ``<metadata_dir>/manifest.json``.
+
+    Args:
+        manifest:     Dict produced by :func:`generate_manifest`.
+        metadata_dir: Absolute path to ``.agent-memory/metadata/``.
+
+    Returns:
+        :data:`~writer.WriteStatus` — ``"created"``, ``"updated"``, or
+        ``"unchanged"``.
+    """
+    path = metadata_dir / "manifest.json"
+    status = write_json_if_changed(path, manifest)
+    logger.debug("%s manifest.json", status)
+    return status

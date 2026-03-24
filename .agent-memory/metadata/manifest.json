@@ -1,0 +1,48 @@
+{
+  "config_files": [
+    ".github",
+    "pyproject.toml"
+  ],
+  "discovered_docs_dirs": [
+    "docs"
+  ],
+  "discovered_languages": [
+    "c",
+    "cpp",
+    "csharp",
+    "go",
+    "java",
+    "kotlin",
+    "php",
+    "python",
+    "ruby",
+    "rust",
+    "solidity",
+    "swift",
+    "typescript",
+    "vue"
+  ],
+  "discovered_test_dirs": [
+    "tests"
+  ],
+  "framework_hints": [],
+  "generated_artifacts": [
+    {
+      "artifact_id": "architecture",
+      "artifact_type": "architecture",
+      "relative_path": ".agent-memory/architecture.md"
+    },
+    {
+      "artifact_id": "repo",
+      "artifact_type": "repo",
+      "relative_path": ".agent-memory/repo.md"
+    }
+  ],
+  "generated_at": "2026-03-24T16:24:37.121323+00:00",
+  "repo_root": "C:\\Users\\Lenovo\\graph",
+  "scan_confidence": 1.0,
+  "source_roots": [
+    "code_review_graph"
+  ],
+  "version": "1"
+}

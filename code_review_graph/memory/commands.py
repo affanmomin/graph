@@ -3,11 +3,6 @@
 Each function here corresponds to one ``code-review-graph memory <sub>`` command.
 They accept an ``argparse.Namespace`` and print human-readable output.
 
-Business logic will be wired in from later tickets (scanner, classifier,
-generator, context_builder, refresh, overrides). For now every handler
-validates its arguments and returns a clear "not yet implemented" message
-so the CLI surface is stable and testable from this ticket onwards.
-
 Handler naming convention mirrors the existing CLI: ``memory_<verb>_command``.
 All handlers share the same signature: ``(args: argparse.Namespace) -> None``.
 """
@@ -46,31 +41,70 @@ def _agent_memory_root(repo_root: Path) -> Path:
 
 
 def memory_init_command(args: argparse.Namespace) -> None:
-    """Scaffold ``.agent-memory/`` and generate initial memory artifacts.
+    """Scan repo and generate initial ``.agent-memory/`` artifacts.
 
-    Full implementation: scanner → classifier → generator → writer → metadata.
-    This placeholder validates the repo root and prints what will be done.
-
-    TODO(T3+): wire real scanner, classifier, generator, writer calls here.
+    Pipeline: scanner → generator → writer → metadata.
+    Generates repo.md, architecture.md, and metadata/manifest.json.
     """
-    repo_root = _resolve_repo_root(args)
-    agent_memory = _agent_memory_root(repo_root)
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
+    from .scanner import scan_repo
+    from .generator import generate_repo_summary, generate_architecture_doc
+    from .metadata import generate_manifest, save_manifest
+    from .writer import ensure_memory_dirs, write_text_if_changed
+
+    repo_root = _resolve_repo_root(args)
     print(f"repo-memory: init")
-    print(f"  repo root     : {repo_root}")
-    print(f"  target folder : {agent_memory}")
+    print(f"  scanning {repo_root} ...")
+
+    # 1. Scan
+    scan = scan_repo(repo_root)
+
+    # 2. Ensure directory tree
+    dirs = ensure_memory_dirs(repo_root)
+
+    # 3. Generate and write artifacts
+    artifacts: list[dict] = []
+
+    repo_md_path = dirs["root"] / "repo.md"
+    s1 = write_text_if_changed(repo_md_path, generate_repo_summary(scan))
+    artifacts.append({
+        "artifact_id": "repo",
+        "artifact_type": "repo",
+        "relative_path": ".agent-memory/repo.md",
+    })
+
+    arch_md_path = dirs["root"] / "architecture.md"
+    s2 = write_text_if_changed(arch_md_path, generate_architecture_doc(scan))
+    artifacts.append({
+        "artifact_id": "architecture",
+        "artifact_type": "architecture",
+        "relative_path": ".agent-memory/architecture.md",
+    })
+
+    # 4. Write manifest
+    manifest = generate_manifest(scan, artifacts)
+    s3 = save_manifest(manifest, dirs["metadata"])
+
+    # 5. Summary output
     print()
-    print("  [not yet implemented]")
-    print("  Will generate:")
-    print("    .agent-memory/repo.md")
-    print("    .agent-memory/architecture.md")
-    print("    .agent-memory/features/*.md")
-    print("    .agent-memory/modules/*.md")
-    print("    .agent-memory/changes/recent.md")
-    print("    .agent-memory/rules/conventions.md")
-    print("    .agent-memory/metadata/manifest.json")
+    print(f"  languages   : {', '.join(scan.languages) or 'none detected'}")
+    print(f"  frameworks  : {', '.join(scan.framework_hints) or 'none detected'}")
+    print(f"  source dirs : {', '.join(scan.source_dirs) or 'none detected'}")
+    print(f"  test dirs   : {', '.join(scan.test_dirs) or 'none detected'}")
+    print(f"  confidence  : {scan.confidence:.0%}")
     print()
-    print("  Run again after Ticket 3+ lands to get real output.")
+    print(f"  .agent-memory/repo.md              [{s1}]")
+    print(f"  .agent-memory/architecture.md      [{s2}]")
+    print(f"  .agent-memory/metadata/manifest.json [{s3}]")
+    print()
+    if scan.notes:
+        print("  Notes:")
+        for note in scan.notes:
+            print(f"    - {note}")
+        print()
+    print("  Done. Commit .agent-memory/ to share memory with your team.")
 
 
 # ---------------------------------------------------------------------------

@@ -94,7 +94,7 @@ class TestMemoryInit:
     def test_runs_without_error(self, tmp_path):
         out = run_cli_stdout("memory", "init", "--repo", str(tmp_path))
         assert "init" in out
-        assert "not yet implemented" in out
+        assert "repo-memory" in out
 
     def test_shows_repo_root(self, tmp_path):
         out = run_cli_stdout("memory", "init", "--repo", str(tmp_path))
