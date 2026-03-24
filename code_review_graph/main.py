@@ -18,6 +18,11 @@ from .tools import (
     get_impact_radius,
     get_review_context,
     list_graph_stats,
+    memory_explain_area,
+    memory_init,
+    memory_prepare_context,
+    memory_recent_changes,
+    memory_refresh,
     query_graph,
     semantic_search_nodes,
 )
@@ -236,6 +241,97 @@ def find_large_functions_tool(
         min_lines=min_lines, kind=kind, file_path_pattern=file_path_pattern,
         limit=limit, repo_root=repo_root,
     )
+
+
+@mcp.tool()
+def memory_init_tool(
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Scan the repository and generate durable .agent-memory/ artifacts.
+
+    Produces feature docs, module docs, and metadata (manifest, sources,
+    confidence scores).  Safe to call repeatedly — unchanged files are skipped.
+    Run this once per repo before using other memory tools.
+
+    Args:
+        repo_root: Repository root path. Auto-detected from current directory if omitted.
+    """
+    return memory_init(repo_root=repo_root)
+
+
+@mcp.tool()
+def memory_prepare_context_tool(
+    task: str,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Build a focused context pack for a developer task.
+
+    Given a natural-language task description, returns the relevant features,
+    modules, files, tests, warnings, and a concise summary — ready to inject
+    into a fresh Claude Code session without re-explaining the codebase.
+
+    Examples:
+        "add oauth provider"
+        "debug the login token refresh bug"
+        "add invoice export endpoint"
+
+    Args:
+        task: Natural-language description of the task (required).
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return memory_prepare_context(task=task, repo_root=repo_root)
+
+
+@mcp.tool()
+def memory_explain_area_tool(
+    name: str,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Explain a named feature or module using stored repo memory.
+
+    Looks up the matching .agent-memory/ artifact and returns its full
+    content — purpose, files, tests, responsibilities, and warnings.
+    Generates on-the-fly if memory init has not been run yet.
+
+    Args:
+        name: Feature or module name (e.g. "auth", "billing", "src/auth").
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return memory_explain_area(name=name, repo_root=repo_root)
+
+
+@mcp.tool()
+def memory_recent_changes_tool(
+    target: Optional[str] = None,
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Show recent meaningful changes for a feature, module, or file path.
+
+    Reads from .agent-memory/changes/recent.md when available.
+    Incremental change tracking requires running memory_refresh_tool after commits.
+
+    Args:
+        target: Optional feature name, module name, or file path to filter by.
+                Returns all recent changes when omitted.
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return memory_recent_changes(target=target, repo_root=repo_root)
+
+
+@mcp.tool()
+def memory_refresh_tool(
+    repo_root: Optional[str] = None,
+) -> dict:
+    """Regenerate .agent-memory/ artifacts to reflect the latest repo state.
+
+    Rescans the repository and rewrites all memory artifacts. Unchanged
+    content is skipped (idempotent). Run after significant commits or
+    refactors to keep memory fresh.
+
+    Args:
+        repo_root: Repository root path. Auto-detected if omitted.
+    """
+    return memory_refresh(repo_root=repo_root)
 
 
 def main(repo_root: str | None = None) -> None:
