@@ -172,7 +172,6 @@ class TestMemoryPrepareContext:
         )
         assert "prepare-context" in out
         assert "add rate limiting" in out
-        assert "not yet implemented" in out
 
     def test_shows_task_in_output(self, tmp_path):
         task = "fix the payment webhook handler"
