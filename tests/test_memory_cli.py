@@ -94,7 +94,7 @@ class TestMemoryInit:
     def test_runs_without_error(self, tmp_path):
         out = run_cli_stdout("memory", "init", "--repo", str(tmp_path))
         assert "init" in out
-        assert "not yet implemented" in out
+        assert "repo-memory" in out
 
     def test_shows_repo_root(self, tmp_path):
         out = run_cli_stdout("memory", "init", "--repo", str(tmp_path))
@@ -172,7 +172,6 @@ class TestMemoryPrepareContext:
         )
         assert "prepare-context" in out
         assert "add rate limiting" in out
-        assert "not yet implemented" in out
 
     def test_shows_task_in_output(self, tmp_path):
         task = "fix the payment webhook handler"

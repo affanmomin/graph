@@ -3,11 +3,6 @@
 Each function here corresponds to one ``code-review-graph memory <sub>`` command.
 They accept an ``argparse.Namespace`` and print human-readable output.
 
-Business logic will be wired in from later tickets (scanner, classifier,
-generator, context_builder, refresh, overrides). For now every handler
-validates its arguments and returns a clear "not yet implemented" message
-so the CLI surface is stable and testable from this ticket onwards.
-
 Handler naming convention mirrors the existing CLI: ``memory_<verb>_command``.
 All handlers share the same signature: ``(args: argparse.Namespace) -> None``.
 """
@@ -46,31 +41,117 @@ def _agent_memory_root(repo_root: Path) -> Path:
 
 
 def memory_init_command(args: argparse.Namespace) -> None:
-    """Scaffold ``.agent-memory/`` and generate initial memory artifacts.
+    """Scan repo and generate initial ``.agent-memory/`` artifacts.
 
-    Full implementation: scanner → classifier → generator → writer → metadata.
-    This placeholder validates the repo root and prints what will be done.
-
-    TODO(T3+): wire real scanner, classifier, generator, writer calls here.
+    Pipeline: scanner → classifier → generator → writer → metadata.
+    Generates repo.md, architecture.md, features/*.md, modules/*.md,
+    and metadata/manifest.json + sources.json + confidence.json.
     """
-    repo_root = _resolve_repo_root(args)
-    agent_memory = _agent_memory_root(repo_root)
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
+    from .scanner import scan_repo
+    from .classifier import classify_features, classify_modules
+    from .generator import (
+        generate_repo_summary, generate_architecture_doc,
+        generate_feature_doc, generate_module_doc,
+    )
+    from .metadata import generate_manifest, save_manifest, save_sources_json, save_confidence_json
+    from .writer import ensure_memory_dirs, write_text_if_changed
+
+    repo_root = _resolve_repo_root(args)
     print(f"repo-memory: init")
-    print(f"  repo root     : {repo_root}")
-    print(f"  target folder : {agent_memory}")
+    print(f"  scanning {repo_root} ...")
+
+    # 1. Scan
+    scan = scan_repo(repo_root)
+
+    # 2. Classify features and modules (deterministic, no LLMs)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    # 3. Ensure directory tree
+    dirs = ensure_memory_dirs(repo_root)
+
+    # 4. Generate and write top-level artifacts
+    artifacts: list[dict] = []
+
+    repo_md_path = dirs["root"] / "repo.md"
+    s_repo = write_text_if_changed(repo_md_path, generate_repo_summary(scan))
+    artifacts.append({
+        "artifact_id": "repo",
+        "artifact_type": "repo",
+        "relative_path": ".agent-memory/repo.md",
+    })
+
+    arch_md_path = dirs["root"] / "architecture.md"
+    s_arch = write_text_if_changed(arch_md_path, generate_architecture_doc(scan))
+    artifacts.append({
+        "artifact_id": "architecture",
+        "artifact_type": "architecture",
+        "relative_path": ".agent-memory/architecture.md",
+    })
+
+    # 5. Write feature docs
+    feature_statuses: list[tuple[str, str]] = []
+    for feature in features:
+        slug = feature.slug()
+        rel = f".agent-memory/features/{slug}.md"
+        path = dirs["features"] / f"{slug}.md"
+        st = write_text_if_changed(path, generate_feature_doc(feature))
+        feature_statuses.append((rel, st))
+        artifacts.append({
+            "artifact_id": f"feature:{slug}",
+            "artifact_type": "feature",
+            "relative_path": rel,
+        })
+
+    # 6. Write module docs
+    module_statuses: list[tuple[str, str]] = []
+    for module in modules:
+        slug = module.slug()
+        rel = f".agent-memory/modules/{slug}.md"
+        path = dirs["modules"] / f"{slug}.md"
+        st = write_text_if_changed(path, generate_module_doc(module))
+        module_statuses.append((rel, st))
+        artifacts.append({
+            "artifact_id": f"module:{slug}",
+            "artifact_type": "module",
+            "relative_path": rel,
+        })
+
+    # 7. Write metadata
+    manifest = generate_manifest(scan, artifacts)
+    s_manifest = save_manifest(manifest, dirs["metadata"])
+    s_sources = save_sources_json(features, modules, dirs["metadata"])
+    s_confidence = save_confidence_json(features, modules, dirs["metadata"])
+
+    # 8. Summary output
     print()
-    print("  [not yet implemented]")
-    print("  Will generate:")
-    print("    .agent-memory/repo.md")
-    print("    .agent-memory/architecture.md")
-    print("    .agent-memory/features/*.md")
-    print("    .agent-memory/modules/*.md")
-    print("    .agent-memory/changes/recent.md")
-    print("    .agent-memory/rules/conventions.md")
-    print("    .agent-memory/metadata/manifest.json")
+    print(f"  languages   : {', '.join(scan.languages) or 'none detected'}")
+    print(f"  frameworks  : {', '.join(scan.framework_hints) or 'none detected'}")
+    print(f"  source dirs : {', '.join(scan.source_dirs) or 'none detected'}")
+    print(f"  test dirs   : {', '.join(scan.test_dirs) or 'none detected'}")
+    print(f"  confidence  : {scan.confidence:.0%}")
+    print(f"  features    : {len(features)}")
+    print(f"  modules     : {len(modules)}")
     print()
-    print("  Run again after Ticket 3+ lands to get real output.")
+    print(f"  .agent-memory/repo.md              [{s_repo}]")
+    print(f"  .agent-memory/architecture.md      [{s_arch}]")
+    for rel, st in feature_statuses:
+        print(f"  {rel} [{st}]")
+    for rel, st in module_statuses:
+        print(f"  {rel} [{st}]")
+    print(f"  .agent-memory/metadata/manifest.json   [{s_manifest}]")
+    print(f"  .agent-memory/metadata/sources.json    [{s_sources}]")
+    print(f"  .agent-memory/metadata/confidence.json [{s_confidence}]")
+    print()
+    if scan.notes:
+        print("  Notes:")
+        for note in scan.notes:
+            print(f"    - {note}")
+        print()
+    print("  Done. Commit .agent-memory/ to share memory with your team.")
 
 
 # ---------------------------------------------------------------------------
@@ -136,33 +217,96 @@ def memory_explain_command(args: argparse.Namespace) -> None:
 def memory_prepare_context_command(args: argparse.Namespace) -> None:
     """Assemble a focused context pack for the given natural-language task.
 
-    This is the core product feature. Returns a ``TaskContextPack`` containing
-    the relevant features, modules, files, tests, warnings, and a task summary
-    — ready to be injected into a fresh Claude Code session.
-
-    TODO(T7): wire context_builder.build_context() + overrides here.
+    Pipeline: scanner → classifier → context_builder → output (text or JSON).
+    Runs the classifier fresh each time so the pack always reflects the current
+    repo state, even if ``memory init`` has not been run.
     """
-    repo_root = _resolve_repo_root(args)
-    task: str = args.task
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-    if not task.strip():
+    from .scanner import scan_repo
+    from .classifier import classify_features, classify_modules
+    from .context_builder import build_context_pack
+
+    repo_root = _resolve_repo_root(args)
+    task: str = args.task.strip()
+    as_json: bool = getattr(args, "json", False)
+
+    if not task:
         print("Error: task description cannot be empty.", flush=True)
         raise SystemExit(1)
 
+    # Classify — fast, deterministic, no LLMs
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    pack = build_context_pack(task, features, modules)
+
+    if as_json:
+        _print_pack_json(pack)
+    else:
+        _print_pack_text(pack)
+
+
+def _print_pack_text(pack) -> None:
+    """Print a TaskContextPack in human-readable format."""
     print(f"repo-memory: prepare-context")
-    print(f"  repo root : {repo_root}")
-    print(f"  task      : {task}")
+    print(f"  task: {pack.task}")
     print()
-    print("  [not yet implemented]")
-    print("  Will return:")
-    print("    relevant features")
-    print("    relevant modules")
-    print("    relevant files")
-    print("    relevant tests")
-    print("    warnings / safe-boundary notes")
-    print("    task summary for Claude Code")
+
+    if pack.relevant_features:
+        print("  Relevant features:")
+        for name in pack.relevant_features:
+            print(f"    - {name}")
+        print()
+
+    if pack.relevant_modules:
+        print("  Relevant modules:")
+        for name in pack.relevant_modules:
+            print(f"    - {name}")
+        print()
+
+    if pack.relevant_files:
+        print("  Files to inspect:")
+        for f in pack.relevant_files:
+            print(f"    - {f}")
+        print()
+
+    if pack.relevant_tests:
+        print("  Related tests:")
+        for t in pack.relevant_tests:
+            print(f"    - {t}")
+        print()
+
+    if pack.warnings:
+        print("  Warnings:")
+        for w in pack.warnings:
+            print(f"    ! {w}")
+        print()
+
+    print("  Summary:")
+    for line in pack.summary.splitlines():
+        print(f"    {line}")
     print()
-    print("  Run `memory init` first to generate artifacts.")
+
+    if pack.is_empty():
+        print("  No relevant context found. Run `memory init` to generate memory artifacts.")
+
+
+def _print_pack_json(pack) -> None:
+    """Print a TaskContextPack as JSON."""
+    import json
+    data = {
+        "task": pack.task,
+        "relevant_features": pack.relevant_features,
+        "relevant_modules": pack.relevant_modules,
+        "relevant_files": pack.relevant_files,
+        "relevant_tests": pack.relevant_tests,
+        "warnings": pack.warnings,
+        "summary": pack.summary,
+    }
+    print(json.dumps(data, indent=2))
 
 
 # ---------------------------------------------------------------------------
