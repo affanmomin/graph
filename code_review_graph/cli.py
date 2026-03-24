@@ -221,6 +221,10 @@ def _add_memory_subparsers(memory_cmd: argparse.ArgumentParser) -> None:
     )
     mem_ctx.add_argument("task", help="Natural-language task description (quote it)")
     mem_ctx.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+    mem_ctx.add_argument(
+        "--json", action="store_true", default=False,
+        help="Output context pack as JSON instead of human-readable text",
+    )
 
     # memory changed
     mem_changed = mem_sub.add_parser(
