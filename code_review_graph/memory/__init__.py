@@ -28,12 +28,30 @@ from .models import (
     ModuleMemory,
     TaskContextPack,
 )
+from .writer import (
+    MEMORY_SUBDIRS,
+    WriteStatus,
+    ensure_memory_dirs,
+    render_markdown_section,
+    write_json_if_changed,
+    write_override_if_absent,
+    write_text_if_changed,
+)
 
 __all__ = [
+    # models
     "ArtifactMetadata",
     "FeatureMemory",
     "MemoryArtifact",
     "MemoryManifest",
     "ModuleMemory",
     "TaskContextPack",
+    # writer
+    "MEMORY_SUBDIRS",
+    "WriteStatus",
+    "ensure_memory_dirs",
+    "render_markdown_section",
+    "write_json_if_changed",
+    "write_override_if_absent",
+    "write_text_if_changed",
 ]
