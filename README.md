@@ -241,6 +241,113 @@ pip install code-review-graph[embeddings]
 
 ---
 
+## Repo Memory
+
+`code-review-graph` includes a **repo-memory** subsystem that generates a `.agent-memory/` folder committed to your repository. Claude Code reads these files at the start of every session — eliminating the need to re-explain your project structure every time.
+
+### What it is
+
+A set of concise, human- and agent-readable Markdown artifacts that capture:
+- what features and modules exist in your repo
+- which files belong to each area
+- which tests cover each area
+- project conventions and safe editing boundaries
+- human corrections and hints (via override files)
+
+### Why it exists
+
+Without repo memory, every Claude Code session starts cold: you paste architecture docs, explain file layout, repeat context you gave last week. Repo memory makes that context persistent and automatic.
+
+### How it works
+
+1. **`memory init`** scans your repo with Tree-sitter, classifies features and modules, and writes `.agent-memory/` artifacts to disk.
+2. **`memory refresh`** re-runs incrementally after changes — only affected areas are regenerated.
+3. **`memory prepare-context`** assembles a focused context pack for a specific task (e.g. "add rate limiting") so Claude reads only what's relevant.
+4. **`memory explain`** and **`memory changed`** let you query the stored memory directly.
+5. **Commit `.agent-memory/`** to Git so every session — and every team member — starts with full context.
+
+### CLI commands
+
+```bash
+# One-time setup
+code-review-graph memory init
+
+# Keep memory current after changes
+code-review-graph memory refresh              # incremental (default)
+code-review-graph memory refresh --full       # full regeneration
+
+# Query memory
+code-review-graph memory prepare-context "add rate limiting to the API"
+code-review-graph memory explain authentication
+code-review-graph memory changed src/payments/
+
+# Edit human overrides
+code-review-graph memory annotate
+```
+
+All commands accept `--repo <path>` to target a specific directory (defaults to the current project root).
+
+### `.agent-memory/` layout
+
+```
+.agent-memory/
+  repo.md                     # high-level repo overview
+  architecture.md             # boundaries, flows, risky areas
+  features/
+    <slug>.md                 # one file per detected feature
+  modules/
+    <slug>.md                 # one file per code module
+  rules/
+    conventions.md            # language/framework conventions
+    safe-boundaries.md        # paths that must not be casually edited
+  overrides/
+    global.yaml               # human corrections and permanent hints
+  metadata/
+    manifest.json             # what was generated and when
+    freshness.json            # last refresh timestamps
+    confidence.json           # classification confidence per artifact
+    sources.json              # file → feature/module index
+```
+
+### Local-only vs Git-committed
+
+| Data | Where | Committed? |
+|------|-------|-----------|
+| `.agent-memory/` artifacts | repo root | **Yes** — share with team |
+| `.code-review-graph/graph.db` | repo root | No — local index only |
+| Embeddings cache | local | No |
+
+Commit `.agent-memory/` so every collaborator (and every Claude Code session) starts with full context. Exclude `.code-review-graph/` — it is a local performance cache rebuilt from source.
+
+### How Claude Code uses it
+
+Once `.agent-memory/` is committed and the MCP server is running, Claude Code automatically reads `repo.md` and `architecture.md` at session start. For specific tasks, call `memory prepare-context` to surface the right features, modules, and files before asking Claude to implement something.
+
+### Override files
+
+Create `.agent-memory/overrides/global.yaml` to teach the system things it cannot infer:
+
+```yaml
+always_include:
+  - docs/architecture.md
+  - src/auth/middleware.py
+
+never_edit:
+  - migrations/
+  - generated/
+
+notes:
+  - "The payments module is PCI-scoped — any change needs security review."
+
+task_hints:
+  - pattern: "add endpoint"
+    hint: "Register new routes in src/api/router.py."
+```
+
+These overrides are merged into every `prepare-context` result and reflected in `rules/conventions.md` and `rules/safe-boundaries.md`.
+
+---
+
 ## Contributing
 
 ```bash
