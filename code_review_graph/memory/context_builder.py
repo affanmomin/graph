@@ -47,8 +47,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .models import FeatureMemory, ModuleMemory, TaskContextPack
+
+if TYPE_CHECKING:
+    from .overrides import Overrides
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -87,13 +91,17 @@ def build_context_pack(
     task: str,
     features: list[FeatureMemory],
     modules: list[ModuleMemory],
+    overrides: Overrides | None = None,
 ) -> TaskContextPack:
     """Build a focused context pack for *task*.
 
     Args:
-        task:     Natural-language task string from the developer.
-        features: Classified :class:`~models.FeatureMemory` list for the repo.
-        modules:  Classified :class:`~models.ModuleMemory` list for the repo.
+        task:      Natural-language task string from the developer.
+        features:  Classified :class:`~models.FeatureMemory` list for the repo.
+        modules:   Classified :class:`~models.ModuleMemory` list for the repo.
+        overrides: Optional loaded :class:`~overrides.Overrides`.  When
+                   provided, ``always_include`` files are prepended, ``never_edit``
+                   paths become warnings, and matching ``task_hints`` are injected.
 
     Returns:
         A populated :class:`~models.TaskContextPack`.  Never raises —
@@ -142,7 +150,7 @@ def build_context_pack(
         fallback=fallback,
     )
 
-    return TaskContextPack(
+    pack = TaskContextPack(
         task=task,
         relevant_features=[f.name for f in top_features],
         relevant_modules=[m.name for m in top_modules],
@@ -151,6 +159,13 @@ def build_context_pack(
         warnings=warnings,
         summary=summary,
     )
+
+    # Apply human overrides last — they always win over inference
+    if overrides and not overrides.is_empty():
+        from .overrides import apply_overrides
+        pack = apply_overrides(pack, overrides)
+
+    return pack
 
 
 # ---------------------------------------------------------------------------

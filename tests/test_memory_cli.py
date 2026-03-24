@@ -205,6 +205,61 @@ class TestMemoryPrepareContext:
         out = run_cli_stdout("memory", "prepare-context", "--help")
         assert "context" in out.lower() or "task" in out.lower()
 
+    def test_overrides_applied_when_present(self, tmp_path):
+        """Overrides from .agent-memory/overrides/ influence prepare-context output."""
+        overrides_dir = tmp_path / ".agent-memory" / "overrides"
+        overrides_dir.mkdir(parents=True)
+        (overrides_dir / "global.yaml").write_text(
+            "always_include:\n  - docs/architecture.md\n"
+            "never_edit:\n  - migrations/\n"
+        )
+        out = run_cli_stdout(
+            "memory", "prepare-context", "add a feature", "--repo", str(tmp_path)
+        )
+        assert "docs/architecture.md" in out
+        assert "migrations/" in out
+
+    def test_prepare_context_no_overrides_dir(self, tmp_path):
+        """prepare-context runs cleanly when .agent-memory/ does not exist."""
+        out = run_cli_stdout(
+            "memory", "prepare-context", "add a feature", "--repo", str(tmp_path)
+        )
+        assert "prepare-context" in out
+
+
+# ---------------------------------------------------------------------------
+# memory init — rule doc generation
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryInitRuleDocs:
+    def test_init_writes_conventions_md(self, tmp_path):
+        run_cli_stdout("memory", "init", "--repo", str(tmp_path))
+        assert (tmp_path / ".agent-memory" / "rules" / "conventions.md").exists()
+
+    def test_init_writes_safe_boundaries_md(self, tmp_path):
+        run_cli_stdout("memory", "init", "--repo", str(tmp_path))
+        assert (tmp_path / ".agent-memory" / "rules" / "safe-boundaries.md").exists()
+
+    def test_init_output_mentions_rule_docs(self, tmp_path):
+        out = run_cli_stdout("memory", "init", "--repo", str(tmp_path))
+        assert "conventions.md" in out
+        assert "safe-boundaries.md" in out
+
+    def test_init_applies_overrides_to_rule_docs(self, tmp_path):
+        """Overrides already in place when init runs are reflected in rule docs."""
+        overrides_dir = tmp_path / ".agent-memory" / "overrides"
+        overrides_dir.mkdir(parents=True)
+        (overrides_dir / "global.yaml").write_text(
+            "never_edit:\n  - legacy/\n"
+            "notes:\n  - 'Legacy module is frozen.'\n"
+        )
+        run_cli_stdout("memory", "init", "--repo", str(tmp_path))
+        sb = (tmp_path / ".agent-memory" / "rules" / "safe-boundaries.md").read_text()
+        assert "legacy/" in sb
+        conv = (tmp_path / ".agent-memory" / "rules" / "conventions.md").read_text()
+        assert "Legacy module is frozen." in conv
+
 
 # ---------------------------------------------------------------------------
 # memory changed

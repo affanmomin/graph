@@ -13,19 +13,25 @@ Design constraints
 
 Public API
 ----------
-generate_repo_summary(scan)              -> str  (content for repo.md)
-generate_architecture_doc(scan)          -> str  (content for architecture.md)
-generate_feature_doc(feature)            -> str  (content for features/<slug>.md)
-generate_module_doc(module)              -> str  (content for modules/<slug>.md)
+generate_repo_summary(scan)                        -> str  (content for repo.md)
+generate_architecture_doc(scan)                    -> str  (content for architecture.md)
+generate_feature_doc(feature)                      -> str  (content for features/<slug>.md)
+generate_module_doc(module)                        -> str  (content for modules/<slug>.md)
+generate_conventions_doc(scan, overrides)          -> str  (content for rules/conventions.md)
+generate_safe_boundaries_doc(scan, overrides)      -> str  (content for rules/safe-boundaries.md)
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .models import FeatureMemory, ModuleMemory
 from .scanner import RepoScan
 from .writer import render_markdown_section
+
+if TYPE_CHECKING:
+    from .overrides import Overrides
 
 # Shared preamble for auto-generated files
 _AUTO_GENERATED_NOTE = (
@@ -658,3 +664,238 @@ def _classification_source(confidence: float) -> str:
     if confidence >= 0.65:
         return "directory name heuristic"
     return "weak heuristic (low confidence)"
+
+
+# ---------------------------------------------------------------------------
+# rules/conventions.md
+# ---------------------------------------------------------------------------
+
+# Inferred language-level conventions
+_LANG_CONVENTIONS: dict[str, list[str]] = {
+    "python": [
+        "Follow PEP 8 style (4-space indent, max 79–100 chars per line).",
+        "Use type annotations on all public functions.",
+        "Prefer `pathlib.Path` over `os.path` for file operations.",
+    ],
+    "typescript": [
+        "Use strict TypeScript (`strict: true` in tsconfig).",
+        "Prefer `interface` over `type` for object shapes.",
+        "Avoid `any`; use `unknown` and narrow explicitly.",
+    ],
+    "javascript": [
+        "Prefer `const` over `let`; avoid `var`.",
+        "Use ES modules (`import`/`export`) over CommonJS.",
+    ],
+    "go": [
+        "Return errors explicitly; never ignore them.",
+        "Keep package names short and lowercase.",
+        "Use `gofmt` formatting.",
+    ],
+    "rust": [
+        "Handle `Result` and `Option` explicitly — no `unwrap()` in production paths.",
+        "Prefer owned types unless sharing is necessary.",
+    ],
+    "java": [
+        "Follow Google Java Style Guide.",
+        "Prefer composition over inheritance.",
+    ],
+}
+
+# Inferred framework-level conventions
+_FRAMEWORK_CONVENTIONS: dict[str, list[str]] = {
+    "Django": [
+        "Keep business logic in services, not views.",
+        "Manage schema changes via `makemigrations` — never edit migrations manually.",
+    ],
+    "FastAPI": [
+        "Use Pydantic schemas for all request/response bodies.",
+        "Register routers in `main.py` or `app.py`.",
+    ],
+    "React": [
+        "Keep components small and single-purpose.",
+        "Lift shared state up to the nearest common ancestor.",
+    ],
+    "Next.js": [
+        "Prefer server components over client components for data fetching.",
+        "Use `app/` directory structure for Next.js 13+.",
+    ],
+}
+
+# Paths that are almost universally never-edit
+_INFERRED_NEVER_EDIT: list[str] = [
+    "node_modules/",
+    ".git/",
+    "__pycache__/",
+    "*.min.js",
+    "*.min.css",
+    "dist/",
+    "build/",
+    ".venv/",
+    "venv/",
+]
+
+
+def generate_conventions_doc(scan: RepoScan, overrides: Overrides | None = None) -> str:
+    """Generate content for ``.agent-memory/rules/conventions.md``.
+
+    Combines inferred language/framework conventions with human notes from
+    override files. Human notes are always included verbatim at the top.
+
+    Args:
+        scan:      A populated :class:`~scanner.RepoScan`.
+        overrides: Optional loaded :class:`~overrides.Overrides`; ``None``
+                   produces inference-only output.
+
+    Returns:
+        Markdown string suitable for writing to ``rules/conventions.md``.
+    """
+    sections: list[str] = []
+
+    repo_name = scan.repo_root.name or "this-repo"
+    sections.append(
+        f"# Conventions: {repo_name}\n\n"
+        f"{_AUTO_GENERATED_NOTE}"
+    )
+
+    # Human notes first — they are authoritative
+    if overrides and overrides.notes:
+        notes_body = "\n".join(f"- {n}" for n in overrides.notes)
+        sections.append(render_markdown_section("Team notes", notes_body))
+
+    # Language conventions
+    lang_lines: list[str] = []
+    for lang in sorted(scan.languages):
+        for rule in _LANG_CONVENTIONS.get(lang, []):
+            lang_lines.append(f"- **{lang}**: {rule}")
+    if lang_lines:
+        sections.append(render_markdown_section("Language conventions", "\n".join(lang_lines)))
+
+    # Framework conventions
+    fw_lines: list[str] = []
+    for fw in sorted(scan.framework_hints):
+        for rule in _FRAMEWORK_CONVENTIONS.get(fw, []):
+            fw_lines.append(f"- **{fw}**: {rule}")
+    if fw_lines:
+        sections.append(render_markdown_section("Framework conventions", "\n".join(fw_lines)))
+
+    # Project-level conventions inferred from scan signals
+    inferred = _infer_project_conventions(scan)
+    if inferred:
+        sections.append(render_markdown_section(
+            "Inferred project patterns",
+            "\n".join(f"- {c}" for c in inferred),
+        ))
+
+    if len(sections) == 1:
+        sections.append(
+            "> No conventions detected. "
+            "Add notes in `.agent-memory/overrides/global.yaml` to guide Claude Code."
+        )
+
+    return "\n\n".join(sections)
+
+
+def generate_safe_boundaries_doc(scan: RepoScan, overrides: Overrides | None = None) -> str:
+    """Generate content for ``.agent-memory/rules/safe-boundaries.md``.
+
+    Lists paths that should never be edited, combining human ``never_edit``
+    overrides with inferred boundaries (vendored code, generated files, etc.).
+
+    Args:
+        scan:      A populated :class:`~scanner.RepoScan`.
+        overrides: Optional loaded :class:`~overrides.Overrides`.
+
+    Returns:
+        Markdown string suitable for writing to ``rules/safe-boundaries.md``.
+    """
+    sections: list[str] = []
+
+    repo_name = scan.repo_root.name or "this-repo"
+    sections.append(
+        f"# Safe boundaries: {repo_name}\n\n"
+        f"{_AUTO_GENERATED_NOTE}\n\n"
+        "> Files and paths listed here must **never** be edited by automated agents "
+        "without explicit human review."
+    )
+
+    # Human never_edit entries — authoritative, listed first
+    if overrides and overrides.never_edit:
+        human_lines = "\n".join(
+            f"- `{p}` — marked never-edit by team" for p in overrides.never_edit
+        )
+        sections.append(render_markdown_section("Never edit (team rules)", human_lines))
+
+    # Inferred boundaries from scan
+    inferred = _infer_never_edit_paths(scan)
+    if inferred:
+        inferred_lines = "\n".join(f"- `{p}` — {reason}" for p, reason in inferred)
+        sections.append(render_markdown_section("Inferred boundaries", inferred_lines))
+
+    # Universal always-skip paths
+    universal = "\n".join(f"- `{p}`" for p in _INFERRED_NEVER_EDIT)
+    sections.append(render_markdown_section("Universal boundaries", universal))
+
+    # Human notes flagging fragile areas
+    if overrides and overrides.notes:
+        notes_body = "\n".join(f"- {n}" for n in overrides.notes)
+        sections.append(render_markdown_section("Fragile area notes", notes_body))
+
+    return "\n\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
+# Rule doc helpers
+# ---------------------------------------------------------------------------
+
+
+def _infer_project_conventions(scan: RepoScan) -> list[str]:
+    """Infer notable project-level conventions from scan signals."""
+    conventions: list[str] = []
+
+    if scan.test_dirs:
+        conventions.append(
+            f"Tests live in `{'`, `'.join(scan.test_dirs)}/`. "
+            "Always add tests for new behaviour."
+        )
+
+    if scan.docs_dirs:
+        conventions.append(
+            f"Documentation lives in `{'`, `'.join(scan.docs_dirs)}/`. "
+            "Update docs when adding public APIs."
+        )
+
+    if "pyproject.toml" in scan.config_files:
+        conventions.append(
+            "Dependencies are managed via `pyproject.toml`. "
+            "Use `uv` or `pip` to update them — never edit the lock file manually."
+        )
+
+    if "package.json" in scan.config_files:
+        conventions.append(
+            "Dependencies are managed via `package.json`. "
+            "Use `npm install` or `yarn` — never edit `node_modules/` directly."
+        )
+
+    return conventions
+
+
+def _infer_never_edit_paths(scan: RepoScan) -> list[tuple[str, str]]:
+    """Return (path, reason) pairs for inferred never-edit boundaries."""
+    inferred: list[tuple[str, str]] = []
+
+    for dir_name in scan.top_level_dirs:
+        lower = dir_name.lower()
+        if lower in ("migrations", "migration"):
+            inferred.append((f"{dir_name}/", "database migrations — append-only"))
+        elif lower in ("vendor", "third_party", "thirdparty"):
+            inferred.append((f"{dir_name}/", "vendored third-party code"))
+        elif lower in ("generated", "gen", "auto_generated", "autogenerated"):
+            inferred.append((f"{dir_name}/", "auto-generated code"))
+
+    if "pyproject.toml" in scan.config_files:
+        inferred.append(("uv.lock", "lock file — managed automatically"))
+    if "package.json" in scan.config_files:
+        inferred.append(("package-lock.json", "lock file — managed automatically"))
+        inferred.append(("yarn.lock", "lock file — managed automatically"))
+
+    return inferred

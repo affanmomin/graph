@@ -50,13 +50,15 @@ def memory_init_command(args: argparse.Namespace) -> None:
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-    from .scanner import scan_repo
     from .classifier import classify_features, classify_modules
-    from .generator import (
+    from .generator import (  # noqa: I001
         generate_repo_summary, generate_architecture_doc,
         generate_feature_doc, generate_module_doc,
+        generate_conventions_doc, generate_safe_boundaries_doc,
     )
     from .metadata import generate_manifest, save_manifest, save_sources_json, save_confidence_json
+    from .overrides import load_overrides
+    from .scanner import scan_repo
     from .writer import ensure_memory_dirs, write_text_if_changed
 
     repo_root = _resolve_repo_root(args)
@@ -120,13 +122,31 @@ def memory_init_command(args: argparse.Namespace) -> None:
             "relative_path": rel,
         })
 
-    # 7. Write metadata
+    # 7. Load overrides and write rule docs
+    overrides = load_overrides(dirs["root"])
+    conv_path = dirs["rules"] / "conventions.md"
+    s_conv = write_text_if_changed(conv_path, generate_conventions_doc(scan, overrides))
+    artifacts.append({
+        "artifact_id": "rules:conventions",
+        "artifact_type": "rules",
+        "relative_path": ".agent-memory/rules/conventions.md",
+    })
+
+    sb_path = dirs["rules"] / "safe-boundaries.md"
+    s_sb = write_text_if_changed(sb_path, generate_safe_boundaries_doc(scan, overrides))
+    artifacts.append({
+        "artifact_id": "rules:safe-boundaries",
+        "artifact_type": "rules",
+        "relative_path": ".agent-memory/rules/safe-boundaries.md",
+    })
+
+    # 8. Write metadata
     manifest = generate_manifest(scan, artifacts)
     s_manifest = save_manifest(manifest, dirs["metadata"])
     s_sources = save_sources_json(features, modules, dirs["metadata"])
     s_confidence = save_confidence_json(features, modules, dirs["metadata"])
 
-    # 8. Summary output
+    # 9. Summary output
     print()
     print(f"  languages   : {', '.join(scan.languages) or 'none detected'}")
     print(f"  frameworks  : {', '.join(scan.framework_hints) or 'none detected'}")
@@ -142,9 +162,11 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print(f"  {rel} [{st}]")
     for rel, st in module_statuses:
         print(f"  {rel} [{st}]")
-    print(f"  .agent-memory/metadata/manifest.json   [{s_manifest}]")
-    print(f"  .agent-memory/metadata/sources.json    [{s_sources}]")
-    print(f"  .agent-memory/metadata/confidence.json [{s_confidence}]")
+    print(f"  .agent-memory/rules/conventions.md         [{s_conv}]")
+    print(f"  .agent-memory/rules/safe-boundaries.md     [{s_sb}]")
+    print(f"  .agent-memory/metadata/manifest.json       [{s_manifest}]")
+    print(f"  .agent-memory/metadata/sources.json        [{s_sources}]")
+    print(f"  .agent-memory/metadata/confidence.json     [{s_confidence}]")
     print()
     if scan.notes:
         print("  Notes:")
@@ -264,9 +286,10 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-    from .scanner import scan_repo
-    from .classifier import classify_features, classify_modules
+    from .classifier import classify_features, classify_modules  # noqa: I001
     from .context_builder import build_context_pack
+    from .overrides import load_overrides
+    from .scanner import scan_repo
 
     repo_root = _resolve_repo_root(args)
     task: str = args.task.strip()
@@ -281,7 +304,10 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
 
-    pack = build_context_pack(task, features, modules)
+    # Load human overrides if .agent-memory/ exists
+    overrides = load_overrides(_agent_memory_root(repo_root))
+
+    pack = build_context_pack(task, features, modules, overrides=overrides)
 
     if as_json:
         _print_pack_json(pack)
