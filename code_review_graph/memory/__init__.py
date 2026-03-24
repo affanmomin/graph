@@ -28,12 +28,48 @@ from .models import (
     ModuleMemory,
     TaskContextPack,
 )
+from .classifier import classify_features, classify_modules
+from .context_builder import build_context_pack
+from .generator import (
+    generate_architecture_doc,
+    generate_feature_doc,
+    generate_module_doc,
+    generate_repo_summary,
+)
+from .writer import (
+    MEMORY_SUBDIRS,
+    WriteStatus,
+    ensure_memory_dirs,
+    render_markdown_section,
+    write_json_if_changed,
+    write_override_if_absent,
+    write_text_if_changed,
+)
 
 __all__ = [
+    # classifier
+    "classify_features",
+    "classify_modules",
+    # context builder
+    "build_context_pack",
+    # generator
+    "generate_architecture_doc",
+    "generate_feature_doc",
+    "generate_module_doc",
+    "generate_repo_summary",
+    # models
     "ArtifactMetadata",
     "FeatureMemory",
     "MemoryArtifact",
     "MemoryManifest",
     "ModuleMemory",
     "TaskContextPack",
+    # writer
+    "MEMORY_SUBDIRS",
+    "WriteStatus",
+    "ensure_memory_dirs",
+    "render_markdown_section",
+    "write_json_if_changed",
+    "write_override_if_absent",
+    "write_text_if_changed",
 ]

@@ -1,6 +1,8 @@
 """MCP tool definitions for the Code Review Graph server.
 
-Exposes 9 tools:
+Exposes 14 tools:
+
+Graph tools (Layer A):
 1. build_or_update_graph  - full or incremental build
 2. get_impact_radius      - blast radius from changed files
 3. query_graph            - predefined graph queries
@@ -10,6 +12,13 @@ Exposes 9 tools:
 7. embed_graph            - compute vector embeddings for semantic search
 8. get_docs_section       - token-optimized documentation retrieval
 9. find_large_functions   - find oversized functions/classes by line count
+
+Memory tools (Layer B — thin adapters, logic lives in memory/):
+10. memory_init            - scan repo and generate .agent-memory/ artifacts
+11. memory_prepare_context - build task-aware context pack for a given task
+12. memory_explain_area    - explain a named feature or module
+13. memory_recent_changes  - show recent changes for a feature/module/path
+14. memory_refresh         - regenerate .agent-memory/ artifacts
 """
 
 from __future__ import annotations
@@ -920,3 +929,321 @@ def find_large_functions(
         }
     finally:
         store.close()
+
+
+# ---------------------------------------------------------------------------
+# Memory tool helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_memory_root(repo_root: str | None = None) -> Path:
+    """Resolve repo root for memory tools.
+
+    Unlike ``_get_store``, this does not require a graph database to exist —
+    only that the path is an existing directory.  Falls back to
+    :func:`~incremental.find_project_root` when *repo_root* is ``None``.
+    """
+    if repo_root:
+        p = Path(repo_root).resolve()
+        if not p.is_dir():
+            raise ValueError(f"repo_root is not an existing directory: {p}")
+        return p
+    return find_project_root()
+
+
+# ---------------------------------------------------------------------------
+# Tool 10: memory_init
+# ---------------------------------------------------------------------------
+
+
+def memory_init(repo_root: str | None = None) -> dict[str, Any]:
+    """Scan the repo and generate all ``.agent-memory/`` artifacts.
+
+    Runs the full pipeline: scanner → classifier → generator → writer →
+    metadata.  Safe to call repeatedly — unchanged files are not rewritten.
+
+    Args:
+        repo_root: Repository root path.  Auto-detected if omitted.
+
+    Returns:
+        Structured summary of what was generated (features, modules,
+        languages, artifact write-statuses).
+    """
+    from .memory.scanner import scan_repo
+    from .memory.classifier import classify_features, classify_modules
+    from .memory.generator import (
+        generate_repo_summary, generate_architecture_doc,
+        generate_feature_doc, generate_module_doc,
+    )
+    from .memory.metadata import generate_manifest, save_manifest, save_sources_json, save_confidence_json
+    from .memory.writer import ensure_memory_dirs, write_text_if_changed
+
+    root = _get_memory_root(repo_root)
+    scan = scan_repo(root)
+    features = classify_features(root, scan)
+    modules = classify_modules(root, scan)
+    dirs = ensure_memory_dirs(root)
+
+    artifacts: list[dict] = []
+    write_statuses: dict[str, str] = {}
+
+    # Top-level docs
+    for artifact_id, artifact_type, rel, content in [
+        ("repo", "repo", ".agent-memory/repo.md", generate_repo_summary(scan)),
+        ("architecture", "architecture", ".agent-memory/architecture.md", generate_architecture_doc(scan)),
+    ]:
+        path = dirs["root"] / rel.split("/")[-1]
+        write_statuses[rel] = write_text_if_changed(path, content)
+        artifacts.append({"artifact_id": artifact_id, "artifact_type": artifact_type, "relative_path": rel})
+
+    # Feature docs
+    for feature in features:
+        slug = feature.slug()
+        rel = f".agent-memory/features/{slug}.md"
+        write_statuses[rel] = write_text_if_changed(dirs["features"] / f"{slug}.md", generate_feature_doc(feature))
+        artifacts.append({"artifact_id": f"feature:{slug}", "artifact_type": "feature", "relative_path": rel})
+
+    # Module docs
+    for module in modules:
+        slug = module.slug()
+        rel = f".agent-memory/modules/{slug}.md"
+        write_statuses[rel] = write_text_if_changed(dirs["modules"] / f"{slug}.md", generate_module_doc(module))
+        artifacts.append({"artifact_id": f"module:{slug}", "artifact_type": "module", "relative_path": rel})
+
+    # Metadata
+    manifest = generate_manifest(scan, artifacts)
+    write_statuses[".agent-memory/metadata/manifest.json"] = save_manifest(manifest, dirs["metadata"])
+    write_statuses[".agent-memory/metadata/sources.json"] = save_sources_json(features, modules, dirs["metadata"])
+    write_statuses[".agent-memory/metadata/confidence.json"] = save_confidence_json(features, modules, dirs["metadata"])
+
+    created = sum(1 for s in write_statuses.values() if s == "created")
+    updated = sum(1 for s in write_statuses.values() if s == "updated")
+
+    return {
+        "status": "ok",
+        "summary": (
+            f"Memory init complete: {len(features)} feature(s), {len(modules)} module(s). "
+            f"{created} artifact(s) created, {updated} updated."
+        ),
+        "features": [f.name for f in features],
+        "modules": [m.name for m in modules],
+        "languages": scan.languages,
+        "scan_confidence": scan.confidence,
+        "artifacts_written": write_statuses,
+        "notes": scan.notes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 11: memory_prepare_context
+# ---------------------------------------------------------------------------
+
+
+def memory_prepare_context(task: str, repo_root: str | None = None) -> dict[str, Any]:
+    """Build a focused context pack for a natural-language task.
+
+    Classifies the repo on-the-fly and scores features/modules against the
+    task description.  No LLMs; all logic is deterministic keyword ranking.
+
+    Args:
+        task:      Natural-language description of the developer's task
+                   (e.g. ``"add invoice export endpoint"``).
+        repo_root: Repository root path.  Auto-detected if omitted.
+
+    Returns:
+        Structured context pack: relevant features, modules, files, tests,
+        warnings, and a concise summary ready for a Claude Code session.
+    """
+    from .memory.scanner import scan_repo
+    from .memory.classifier import classify_features, classify_modules
+    from .memory.context_builder import build_context_pack
+
+    task = task.strip()
+    if not task:
+        return {"status": "error", "error": "task cannot be empty"}
+
+    root = _get_memory_root(repo_root)
+    scan = scan_repo(root)
+    features = classify_features(root, scan)
+    modules = classify_modules(root, scan)
+    pack = build_context_pack(task, features, modules)
+
+    return {
+        "status": "ok",
+        "summary": pack.summary,
+        "task": pack.task,
+        "relevant_features": pack.relevant_features,
+        "relevant_modules": pack.relevant_modules,
+        "relevant_files": pack.relevant_files,
+        "relevant_tests": pack.relevant_tests,
+        "warnings": pack.warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 12: memory_explain_area
+# ---------------------------------------------------------------------------
+
+
+def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, Any]:
+    """Explain a named feature or module using stored memory.
+
+    Tries ``.agent-memory/features/<slug>.md`` and
+    ``.agent-memory/modules/<slug>.md`` first.  If the artifact does not
+    exist yet, generates the explanation on-the-fly from the classifier.
+
+    Args:
+        name:      Feature or module name to explain (e.g. ``"auth"``,
+                   ``"src/billing"``).
+        repo_root: Repository root path.  Auto-detected if omitted.
+
+    Returns:
+        Markdown content plus metadata, or a ``not_found`` response that
+        lists available features and modules.
+    """
+    from .memory.scanner import scan_repo
+    from .memory.classifier import classify_features, classify_modules
+    from .memory.generator import generate_feature_doc, generate_module_doc
+
+    root = _get_memory_root(repo_root)
+    slug = name.lower().replace(" ", "-").replace("/", "-").replace(".", "-")
+    agent_memory = root / ".agent-memory"
+
+    # Try persisted artifacts first
+    for subdir, kind in (("features", "feature"), ("modules", "module")):
+        candidate = agent_memory / subdir / f"{slug}.md"
+        if candidate.exists():
+            content = candidate.read_text(encoding="utf-8", errors="replace")
+            return {
+                "status": "ok",
+                "kind": kind,
+                "name": name,
+                "source": "persisted",
+                "artifact_path": str(candidate.relative_to(root)),
+                "summary": f"{kind.capitalize()} '{name}' loaded from .agent-memory/{subdir}/{slug}.md",
+                "content": content,
+            }
+
+    # Fallback: classify on-the-fly and generate the doc
+    scan = scan_repo(root)
+    features = classify_features(root, scan)
+    modules = classify_modules(root, scan)
+    name_lower = name.lower()
+
+    for feature in features:
+        if feature.name.lower() == name_lower or feature.slug() == slug:
+            return {
+                "status": "ok",
+                "kind": "feature",
+                "name": feature.name,
+                "source": "generated",
+                "summary": (
+                    f"Feature '{feature.name}': {len(feature.files)} file(s), "
+                    f"confidence {feature.confidence:.0%}. "
+                    "Run `memory init` to persist this to .agent-memory/."
+                ),
+                "content": generate_feature_doc(feature),
+                "files": feature.files,
+                "tests": feature.tests,
+                "confidence": feature.confidence,
+            }
+
+    for module in modules:
+        if module.name.lower() == name_lower or module.slug() == slug:
+            return {
+                "status": "ok",
+                "kind": "module",
+                "name": module.name,
+                "source": "generated",
+                "summary": (
+                    f"Module '{module.name}': {len(module.files)} file(s), "
+                    f"confidence {module.confidence:.0%}. "
+                    "Run `memory init` to persist this to .agent-memory/."
+                ),
+                "content": generate_module_doc(module),
+                "files": module.files,
+                "tests": module.tests,
+                "confidence": module.confidence,
+            }
+
+    return {
+        "status": "not_found",
+        "summary": f"No feature or module matching '{name}' found.",
+        "available_features": [f.name for f in features],
+        "available_modules": [m.name for m in modules],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 13: memory_recent_changes
+# ---------------------------------------------------------------------------
+
+
+def memory_recent_changes(
+    target: str | None = None,
+    repo_root: str | None = None,
+) -> dict[str, Any]:
+    """Show recent meaningful changes for a feature, module, or file path.
+
+    Reads ``.agent-memory/changes/recent.md`` if it exists.  Incremental
+    change tracking is not yet implemented — call ``memory_refresh`` after
+    commits to keep memory up to date.
+
+    Args:
+        target:    Optional feature name, module name, or file path to filter
+                   changes.  Returns all recent changes when omitted.
+        repo_root: Repository root path.  Auto-detected if omitted.
+
+    Returns:
+        Recent changes content, or a ``not_ready`` response with instructions.
+    """
+    root = _get_memory_root(repo_root)
+    recent_md = root / ".agent-memory" / "changes" / "recent.md"
+
+    if recent_md.exists():
+        content = recent_md.read_text(encoding="utf-8", errors="replace")
+        if target:
+            # Best-effort filter: return sections mentioning the target
+            lines = content.splitlines()
+            filtered = [ln for ln in lines if not ln or target.lower() in ln.lower()]
+            content = "\n".join(filtered) if filtered else content
+        return {
+            "status": "ok",
+            "summary": "Recent changes loaded from .agent-memory/changes/recent.md",
+            "target": target,
+            "content": content,
+        }
+
+    return {
+        "status": "not_ready",
+        "summary": (
+            "Recent changes tracking is not yet available for this repo. "
+            "Run `memory init` to initialize memory, then `memory refresh` "
+            "after commits to track incremental changes."
+        ),
+        "target": target,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 14: memory_refresh
+# ---------------------------------------------------------------------------
+
+
+def memory_refresh(repo_root: str | None = None) -> dict[str, Any]:
+    """Regenerate ``.agent-memory/`` artifacts to reflect the latest repo state.
+
+    Currently performs a full regeneration (same as ``memory_init``).
+    Incremental refresh tied to git changes is planned for a future release.
+
+    Args:
+        repo_root: Repository root path.  Auto-detected if omitted.
+
+    Returns:
+        Same structured summary as ``memory_init``.
+    """
+    result = memory_init(repo_root=repo_root)
+    # Annotate so callers can distinguish refresh from first-run init
+    result["refresh_type"] = "full"
+    result["summary"] = result["summary"].replace("Memory init complete", "Memory refresh complete")
+    return result
