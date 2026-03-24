@@ -43,15 +43,20 @@ def _agent_memory_root(repo_root: Path) -> Path:
 def memory_init_command(args: argparse.Namespace) -> None:
     """Scan repo and generate initial ``.agent-memory/`` artifacts.
 
-    Pipeline: scanner → generator → writer → metadata.
-    Generates repo.md, architecture.md, and metadata/manifest.json.
+    Pipeline: scanner → classifier → generator → writer → metadata.
+    Generates repo.md, architecture.md, features/*.md, modules/*.md,
+    and metadata/manifest.json + sources.json + confidence.json.
     """
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
     from .scanner import scan_repo
-    from .generator import generate_repo_summary, generate_architecture_doc
-    from .metadata import generate_manifest, save_manifest
+    from .classifier import classify_features, classify_modules
+    from .generator import (
+        generate_repo_summary, generate_architecture_doc,
+        generate_feature_doc, generate_module_doc,
+    )
+    from .metadata import generate_manifest, save_manifest, save_sources_json, save_confidence_json
     from .writer import ensure_memory_dirs, write_text_if_changed
 
     repo_root = _resolve_repo_root(args)
@@ -61,14 +66,18 @@ def memory_init_command(args: argparse.Namespace) -> None:
     # 1. Scan
     scan = scan_repo(repo_root)
 
-    # 2. Ensure directory tree
+    # 2. Classify features and modules (deterministic, no LLMs)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    # 3. Ensure directory tree
     dirs = ensure_memory_dirs(repo_root)
 
-    # 3. Generate and write artifacts
+    # 4. Generate and write top-level artifacts
     artifacts: list[dict] = []
 
     repo_md_path = dirs["root"] / "repo.md"
-    s1 = write_text_if_changed(repo_md_path, generate_repo_summary(scan))
+    s_repo = write_text_if_changed(repo_md_path, generate_repo_summary(scan))
     artifacts.append({
         "artifact_id": "repo",
         "artifact_type": "repo",
@@ -76,28 +85,66 @@ def memory_init_command(args: argparse.Namespace) -> None:
     })
 
     arch_md_path = dirs["root"] / "architecture.md"
-    s2 = write_text_if_changed(arch_md_path, generate_architecture_doc(scan))
+    s_arch = write_text_if_changed(arch_md_path, generate_architecture_doc(scan))
     artifacts.append({
         "artifact_id": "architecture",
         "artifact_type": "architecture",
         "relative_path": ".agent-memory/architecture.md",
     })
 
-    # 4. Write manifest
-    manifest = generate_manifest(scan, artifacts)
-    s3 = save_manifest(manifest, dirs["metadata"])
+    # 5. Write feature docs
+    feature_statuses: list[tuple[str, str]] = []
+    for feature in features:
+        slug = feature.slug()
+        rel = f".agent-memory/features/{slug}.md"
+        path = dirs["features"] / f"{slug}.md"
+        st = write_text_if_changed(path, generate_feature_doc(feature))
+        feature_statuses.append((rel, st))
+        artifacts.append({
+            "artifact_id": f"feature:{slug}",
+            "artifact_type": "feature",
+            "relative_path": rel,
+        })
 
-    # 5. Summary output
+    # 6. Write module docs
+    module_statuses: list[tuple[str, str]] = []
+    for module in modules:
+        slug = module.slug()
+        rel = f".agent-memory/modules/{slug}.md"
+        path = dirs["modules"] / f"{slug}.md"
+        st = write_text_if_changed(path, generate_module_doc(module))
+        module_statuses.append((rel, st))
+        artifacts.append({
+            "artifact_id": f"module:{slug}",
+            "artifact_type": "module",
+            "relative_path": rel,
+        })
+
+    # 7. Write metadata
+    manifest = generate_manifest(scan, artifacts)
+    s_manifest = save_manifest(manifest, dirs["metadata"])
+    s_sources = save_sources_json(features, modules, dirs["metadata"])
+    s_confidence = save_confidence_json(features, modules, dirs["metadata"])
+
+    # 8. Summary output
     print()
     print(f"  languages   : {', '.join(scan.languages) or 'none detected'}")
     print(f"  frameworks  : {', '.join(scan.framework_hints) or 'none detected'}")
     print(f"  source dirs : {', '.join(scan.source_dirs) or 'none detected'}")
     print(f"  test dirs   : {', '.join(scan.test_dirs) or 'none detected'}")
     print(f"  confidence  : {scan.confidence:.0%}")
+    print(f"  features    : {len(features)}")
+    print(f"  modules     : {len(modules)}")
     print()
-    print(f"  .agent-memory/repo.md              [{s1}]")
-    print(f"  .agent-memory/architecture.md      [{s2}]")
-    print(f"  .agent-memory/metadata/manifest.json [{s3}]")
+    print(f"  .agent-memory/repo.md              [{s_repo}]")
+    print(f"  .agent-memory/architecture.md      [{s_arch}]")
+    for rel, st in feature_statuses:
+        print(f"  {rel} [{st}]")
+    for rel, st in module_statuses:
+        print(f"  {rel} [{st}]")
+    print(f"  .agent-memory/metadata/manifest.json   [{s_manifest}]")
+    print(f"  .agent-memory/metadata/sources.json    [{s_sources}]")
+    print(f"  .agent-memory/metadata/confidence.json [{s_confidence}]")
     print()
     if scan.notes:
         print("  Notes:")

@@ -29,6 +29,12 @@ from .models import (
     TaskContextPack,
 )
 from .classifier import classify_features, classify_modules
+from .generator import (
+    generate_architecture_doc,
+    generate_feature_doc,
+    generate_module_doc,
+    generate_repo_summary,
+)
 from .writer import (
     MEMORY_SUBDIRS,
     WriteStatus,
@@ -43,6 +49,11 @@ __all__ = [
     # classifier
     "classify_features",
     "classify_modules",
+    # generator
+    "generate_architecture_doc",
+    "generate_feature_doc",
+    "generate_module_doc",
+    "generate_repo_summary",
     # models
     "ArtifactMetadata",
     "FeatureMemory",
