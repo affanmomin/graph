@@ -50,13 +50,15 @@ def memory_init_command(args: argparse.Namespace) -> None:
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-    from .scanner import scan_repo
     from .classifier import classify_features, classify_modules
-    from .generator import (
+    from .generator import (  # noqa: I001
         generate_repo_summary, generate_architecture_doc,
         generate_feature_doc, generate_module_doc,
+        generate_conventions_doc, generate_safe_boundaries_doc,
     )
     from .metadata import generate_manifest, save_manifest, save_sources_json, save_confidence_json
+    from .overrides import load_overrides
+    from .scanner import scan_repo
     from .writer import ensure_memory_dirs, write_text_if_changed
 
     repo_root = _resolve_repo_root(args)
@@ -120,13 +122,31 @@ def memory_init_command(args: argparse.Namespace) -> None:
             "relative_path": rel,
         })
 
-    # 7. Write metadata
+    # 7. Load overrides and write rule docs
+    overrides = load_overrides(dirs["root"])
+    conv_path = dirs["rules"] / "conventions.md"
+    s_conv = write_text_if_changed(conv_path, generate_conventions_doc(scan, overrides))
+    artifacts.append({
+        "artifact_id": "rules:conventions",
+        "artifact_type": "rules",
+        "relative_path": ".agent-memory/rules/conventions.md",
+    })
+
+    sb_path = dirs["rules"] / "safe-boundaries.md"
+    s_sb = write_text_if_changed(sb_path, generate_safe_boundaries_doc(scan, overrides))
+    artifacts.append({
+        "artifact_id": "rules:safe-boundaries",
+        "artifact_type": "rules",
+        "relative_path": ".agent-memory/rules/safe-boundaries.md",
+    })
+
+    # 8. Write metadata
     manifest = generate_manifest(scan, artifacts)
     s_manifest = save_manifest(manifest, dirs["metadata"])
     s_sources = save_sources_json(features, modules, dirs["metadata"])
     s_confidence = save_confidence_json(features, modules, dirs["metadata"])
 
-    # 8. Summary output
+    # 9. Summary output
     print()
     print(f"  languages   : {', '.join(scan.languages) or 'none detected'}")
     print(f"  frameworks  : {', '.join(scan.framework_hints) or 'none detected'}")
@@ -142,9 +162,11 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print(f"  {rel} [{st}]")
     for rel, st in module_statuses:
         print(f"  {rel} [{st}]")
-    print(f"  .agent-memory/metadata/manifest.json   [{s_manifest}]")
-    print(f"  .agent-memory/metadata/sources.json    [{s_sources}]")
-    print(f"  .agent-memory/metadata/confidence.json [{s_confidence}]")
+    print(f"  .agent-memory/rules/conventions.md         [{s_conv}]")
+    print(f"  .agent-memory/rules/safe-boundaries.md     [{s_sb}]")
+    print(f"  .agent-memory/metadata/manifest.json       [{s_manifest}]")
+    print(f"  .agent-memory/metadata/sources.json        [{s_sources}]")
+    print(f"  .agent-memory/metadata/confidence.json     [{s_confidence}]")
     print()
     if scan.notes:
         print("  Notes:")
@@ -165,22 +187,62 @@ def memory_refresh_command(args: argparse.Namespace) -> None:
     Detects which source files changed since the last generation and
     regenerates only the affected artifacts. Use ``--full`` to regenerate
     everything regardless of what changed.
-
-    TODO(T6): wire real refresh orchestrator (refresh.py) here.
     """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from .classifier import classify_features, classify_modules
+    from .refresh import execute_refresh, plan_refresh
+    from .scanner import scan_repo  # noqa: I001
+
     repo_root = _resolve_repo_root(args)
     agent_memory = _agent_memory_root(repo_root)
     full = getattr(args, "full", False)
-
     mode = "full" if full else "incremental"
+
     print(f"repo-memory: refresh ({mode})")
     print(f"  repo root     : {repo_root}")
     print(f"  target folder : {agent_memory}")
     print()
-    print("  [not yet implemented]")
-    print(f"  Will run a {mode} refresh of all .agent-memory/ artifacts.")
+
+    if not agent_memory.exists():
+        print("  .agent-memory/ not found — run 'memory init' first.")
+        return
+
+    # Determine changed files for incremental mode
+    changed_files: list[str] = []
     if not full:
-        print("  Pass --full to regenerate everything regardless of changes.")
+        from ..incremental import get_changed_files, get_staged_and_unstaged
+        changed_files = get_changed_files(repo_root)
+        if not changed_files:
+            # Fallback: staged and unstaged edits (pre-commit or workdir changes)
+            changed_files = get_staged_and_unstaged(repo_root)
+
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    plan = plan_refresh(changed_files, features, modules, full=full)
+    result = execute_refresh(plan, repo_root, features, modules, scan)
+
+    print(f"  mode          : {result['mode']}")
+    print(f"  changed files : {len(result['changed_files'])}")
+    print(f"  plan          : {result['reason']}")
+    print()
+
+    if result["artifacts_updated"]:
+        print("  Updated:")
+        for a in result["artifacts_updated"]:
+            print(f"    {a}")
+        print()
+
+    if result["artifacts_skipped"]:
+        print("  Unchanged:")
+        for a in result["artifacts_skipped"]:
+            print(f"    {a}")
+        print()
+
+    print("  Done.")
 
 
 # ---------------------------------------------------------------------------
@@ -194,19 +256,29 @@ def memory_explain_command(args: argparse.Namespace) -> None:
     Looks up the closest matching memory artifact for the given target
     and prints a grounded, concise explanation suitable for pasting into
     a Claude Code session.
-
-    TODO(T4+): load and display the relevant .agent-memory/ artifact here.
     """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from .classifier import classify_features, classify_modules
+    from .lookup import explain_match, match_target
+    from .scanner import scan_repo
+
     repo_root = _resolve_repo_root(args)
+    agent_memory = _agent_memory_root(repo_root)
     target: str = args.target
 
     print(f"repo-memory: explain")
     print(f"  repo root : {repo_root}")
     print(f"  target    : {target}")
     print()
-    print("  [not yet implemented]")
-    print(f"  Will explain '{target}' using generated memory artifacts.")
-    print("  Run `memory init` first to generate artifacts.")
+
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    match = match_target(target, agent_memory, features, modules)
+    print(explain_match(match, agent_memory))
 
 
 # ---------------------------------------------------------------------------
@@ -224,9 +296,10 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-    from .scanner import scan_repo
-    from .classifier import classify_features, classify_modules
+    from .classifier import classify_features, classify_modules  # noqa: I001
     from .context_builder import build_context_pack
+    from .overrides import load_overrides
+    from .scanner import scan_repo
 
     repo_root = _resolve_repo_root(args)
     task: str = args.task.strip()
@@ -241,7 +314,10 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
 
-    pack = build_context_pack(task, features, modules)
+    # Load human overrides if .agent-memory/ exists
+    overrides = load_overrides(_agent_memory_root(repo_root))
+
+    pack = build_context_pack(task, features, modules, overrides=overrides)
 
     if as_json:
         _print_pack_json(pack)
@@ -319,19 +395,29 @@ def memory_changed_command(args: argparse.Namespace) -> None:
 
     Surfaces what changed recently in the specified area so a developer
     starting a task can understand the current state without reading git log.
-
-    TODO(T4+): load changes/recent.md and filter by target area.
     """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from .classifier import classify_features, classify_modules
+    from .lookup import changed_match, match_target
+    from .scanner import scan_repo
+
     repo_root = _resolve_repo_root(args)
+    agent_memory = _agent_memory_root(repo_root)
     target: str = args.target
 
     print(f"repo-memory: changed")
     print(f"  repo root : {repo_root}")
     print(f"  target    : {target}")
     print()
-    print("  [not yet implemented]")
-    print(f"  Will show recent changes affecting '{target}'.")
-    print("  Run `memory init` first to generate change artifacts.")
+
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    match = match_target(target, agent_memory, features, modules)
+    print(changed_match(match, agent_memory))
 
 
 # ---------------------------------------------------------------------------

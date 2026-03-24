@@ -303,8 +303,20 @@ def incremental_update(
     store: GraphStore,
     base: str = "HEAD~1",
     changed_files: list[str] | None = None,
+    refresh_memory: bool = False,
 ) -> dict:
-    """Incremental update: re-parse changed + dependent files only."""
+    """Incremental update: re-parse changed + dependent files only.
+
+    Args:
+        repo_root:      Absolute path to the repository root.
+        store:          Open :class:`~graph.GraphStore` for this repo.
+        base:           Git ref to diff against (default: ``HEAD~1``).
+        changed_files:  Override the git-detected changed file list.  Useful
+                        for tests and the file-watcher integration.
+        refresh_memory: If ``True`` and ``.agent-memory/`` exists, trigger an
+                        incremental memory refresh after the graph update.
+                        Defaults to ``False`` to preserve existing behaviour.
+    """
     parser = CodeParser()
     ignore_patterns = _load_ignore_patterns(repo_root)
 
@@ -374,7 +386,7 @@ def incremental_update(
     store.set_metadata("last_build_type", "incremental")
     store.commit()
 
-    return {
+    result = {
         "files_updated": len(all_files),
         "total_nodes": total_nodes,
         "total_edges": total_edges,
@@ -382,6 +394,34 @@ def incremental_update(
         "dependent_files": list(dependent_files),
         "errors": errors,
     }
+
+    if refresh_memory:
+        _maybe_refresh_memory(repo_root, list(changed_files))
+
+    return result
+
+
+def _maybe_refresh_memory(repo_root: Path, changed_files: list[str]) -> None:
+    """Trigger incremental memory refresh if ``.agent-memory/`` exists.
+
+    Silently skips when the memory subsystem is absent or fails — memory
+    refresh is always non-fatal relative to the graph update.
+    """
+    if not (repo_root / ".agent-memory").exists():
+        return
+    try:
+        from .memory.classifier import classify_features, classify_modules
+        from .memory.refresh import execute_refresh, plan_refresh
+        from .memory.scanner import scan_repo
+
+        scan = scan_repo(repo_root)
+        features = classify_features(repo_root, scan)
+        modules = classify_modules(repo_root, scan)
+        plan = plan_refresh(changed_files, features, modules)
+        execute_refresh(plan, repo_root, features, modules, scan)
+        logger.info("Memory refresh: %s", plan.reason)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Memory refresh failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------------
