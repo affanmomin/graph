@@ -9,6 +9,13 @@ Usage:
     code-review-graph status
     code-review-graph serve
     code-review-graph visualize
+
+    code-review-graph memory init
+    code-review-graph memory refresh [--full]
+    code-review-graph memory explain <target>
+    code-review-graph memory prepare-context "<task>"
+    code-review-graph memory changed <target>
+    code-review-graph memory annotate
 """
 
 from __future__ import annotations
@@ -59,6 +66,7 @@ def _print_banner() -> None:
     b = "\033[1m" if color else ""    # bold
     d = "\033[2m" if color else ""    # dim
     g = "\033[32m" if color else ""   # green — commands
+    m = "\033[35m" if color else ""   # magenta — memory commands
     r = "\033[0m" if color else ""    # reset
 
     print(f"""
@@ -68,7 +76,7 @@ def _print_banner() -> None:
 {c}  │╱ │ ╲│{r}       {d}Structural knowledge graph for{r}
 {c}  ●──●──●{r}       {d}smarter code reviews{r}
 
-  {b}Commands:{r}
+  {b}Graph commands:{r}
     {g}install{r}     Set up Claude Code integration
     {g}init{r}        Alias for install
     {g}build{r}       Full graph build {d}(parse all files){r}
@@ -77,6 +85,14 @@ def _print_banner() -> None:
     {g}status{r}      Show graph statistics
     {g}visualize{r}   Generate interactive HTML graph
     {g}serve{r}       Start MCP server
+
+  {b}Repo-memory commands:{r}
+    {m}memory init{r}             Generate .agent-memory/ artifacts
+    {m}memory refresh{r}          Refresh memory {d}(incremental by default){r}
+    {m}memory explain{r} {d}<target>{r}  Explain a feature, module, or path
+    {m}memory prepare-context{r}  Build task context pack for Claude Code
+    {m}memory changed{r} {d}<target>{r}  Show recent changes in an area
+    {m}memory annotate{r}         Edit human override guidance
 
   {d}Run{r} {b}code-review-graph <command> --help{r} {d}for details{r}
 """)
@@ -129,6 +145,156 @@ def _handle_init(args: argparse.Namespace) -> None:
     print("Next steps:")
     print("  1. code-review-graph build    # build the knowledge graph")
     print("  2. Restart Claude Code        # to pick up the new MCP server")
+
+
+def _add_memory_subparsers(memory_cmd: argparse.ArgumentParser) -> None:
+    """Register all ``memory <sub>`` subcommands onto the memory parser."""
+    mem_sub = memory_cmd.add_subparsers(dest="memory_command")
+
+    # memory init
+    mem_init = mem_sub.add_parser(
+        "init",
+        help="Scan repo and generate .agent-memory/ artifacts",
+        description=(
+            "Initialise repo memory for this repository.\n\n"
+            "Scans the codebase, classifies features and modules, and generates\n"
+            "durable .agent-memory/ artifacts that can be committed to Git.\n\n"
+            "Example:\n"
+            "  code-review-graph memory init\n"
+            "  code-review-graph memory init --repo /path/to/repo"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mem_init.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # memory refresh
+    mem_refresh = mem_sub.add_parser(
+        "refresh",
+        help="Refresh .agent-memory/ artifacts (incremental by default)",
+        description=(
+            "Refresh repo memory after code changes.\n\n"
+            "By default only artifacts affected by recent file changes are\n"
+            "regenerated (incremental mode). Use --full to regenerate everything.\n\n"
+            "Examples:\n"
+            "  code-review-graph memory refresh\n"
+            "  code-review-graph memory refresh --full"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mem_refresh.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+    mem_refresh.add_argument(
+        "--full", action="store_true",
+        help="Regenerate all artifacts regardless of what changed",
+    )
+
+    # memory explain
+    mem_explain = mem_sub.add_parser(
+        "explain",
+        help="Explain a feature, module, or file path using stored memory",
+        description=(
+            "Print a grounded explanation of a repo area from generated memory.\n\n"
+            "TARGET can be a feature name, module name, or relative file path.\n\n"
+            "Examples:\n"
+            "  code-review-graph memory explain authentication\n"
+            "  code-review-graph memory explain code_review_graph/memory\n"
+            "  code-review-graph memory explain src/api/routes.py"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mem_explain.add_argument("target", help="Feature name, module name, or file path to explain")
+    mem_explain.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # memory prepare-context
+    mem_ctx = mem_sub.add_parser(
+        "prepare-context",
+        help="Build a focused context pack for a task (for Claude Code)",
+        description=(
+            "Assemble a task-aware context pack from stored memory.\n\n"
+            "Given a natural-language task description, returns the relevant\n"
+            "features, modules, files, tests, warnings, and a task summary\n"
+            "ready to inject into a fresh Claude Code session.\n\n"
+            "Examples:\n"
+            '  code-review-graph memory prepare-context "add rate limiting to the API"\n'
+            '  code-review-graph memory prepare-context "fix the auth token refresh bug"'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mem_ctx.add_argument("task", help="Natural-language task description (quote it)")
+    mem_ctx.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # memory changed
+    mem_changed = mem_sub.add_parser(
+        "changed",
+        help="Show recent meaningful changes in a feature, module, or path",
+        description=(
+            "Show what changed recently in the specified area.\n\n"
+            "Surfaces recent git changes filtered to TARGET so developers\n"
+            "starting a task understand current state without reading raw git log.\n\n"
+            "Examples:\n"
+            "  code-review-graph memory changed authentication\n"
+            "  code-review-graph memory changed src/api"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mem_changed.add_argument("target", help="Feature name, module name, or file path")
+    mem_changed.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+    # memory annotate
+    mem_annotate = mem_sub.add_parser(
+        "annotate",
+        help="Edit human override guidance in .agent-memory/overrides/",
+        description=(
+            "Open or scaffold the human override file for this repo.\n\n"
+            "Override files let you correct and constrain generated memory:\n"
+            "  always_include — files always surfaced in context packs\n"
+            "  never_edit     — paths Claude should never suggest changing\n"
+            "  notes          — free-text domain knowledge\n"
+            "  task_hints     — task-pattern-matched hints for Claude\n\n"
+            "Example:\n"
+            "  code-review-graph memory annotate"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mem_annotate.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+
+
+def _handle_memory(args: argparse.Namespace) -> None:
+    """Dispatch ``memory <sub>`` commands to the appropriate handler."""
+    from .memory.commands import (
+        memory_annotate_command,
+        memory_changed_command,
+        memory_explain_command,
+        memory_init_command,
+        memory_prepare_context_command,
+        memory_refresh_command,
+    )
+
+    sub = getattr(args, "memory_command", None)
+
+    dispatch = {
+        "init": memory_init_command,
+        "refresh": memory_refresh_command,
+        "explain": memory_explain_command,
+        "prepare-context": memory_prepare_context_command,
+        "changed": memory_changed_command,
+        "annotate": memory_annotate_command,
+    }
+
+    if sub in dispatch:
+        dispatch[sub](args)
+    else:
+        # No sub-command — print memory-specific help
+        print("usage: code-review-graph memory <command> [options]")
+        print()
+        print("Repo-memory commands:")
+        print("  init              Generate .agent-memory/ artifacts for this repo")
+        print("  refresh           Refresh memory artifacts (incremental by default)")
+        print("  explain <target>  Explain a feature, module, or file path")
+        print("  prepare-context   Build task context pack for Claude Code")
+        print("  changed <target>  Show recent changes in a feature, module, or path")
+        print("  annotate          Edit human override guidance")
+        print()
+        print("Run 'code-review-graph memory <command> --help' for details.")
 
 
 def main() -> None:
@@ -186,6 +352,13 @@ def main() -> None:
     serve_cmd = sub.add_parser("serve", help="Start MCP server (stdio transport)")
     serve_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
+    # memory — repo-memory command group
+    memory_cmd = sub.add_parser(
+        "memory",
+        help="Repo-memory commands (init, refresh, explain, prepare-context, changed, annotate)",
+    )
+    _add_memory_subparsers(memory_cmd)
+
     args = ap.parse_args()
 
     if args.version:
@@ -199,6 +372,10 @@ def main() -> None:
     if args.command == "serve":
         from .main import main as serve_main
         serve_main(repo_root=args.repo)
+        return
+
+    if args.command == "memory":
+        _handle_memory(args)
         return
 
     if args.command in ("init", "install"):
