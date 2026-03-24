@@ -118,7 +118,8 @@ class TestMemoryRefresh:
     def test_runs_incremental_by_default(self, tmp_path):
         out = run_cli_stdout("memory", "refresh", "--repo", str(tmp_path))
         assert "incremental" in out
-        assert "not yet implemented" in out
+        # Command is now implemented; no longer prints stub message
+        assert "not yet implemented" not in out
 
     def test_full_flag(self, tmp_path):
         out = run_cli_stdout("memory", "refresh", "--full", "--repo", str(tmp_path))

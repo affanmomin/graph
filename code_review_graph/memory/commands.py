@@ -165,22 +165,62 @@ def memory_refresh_command(args: argparse.Namespace) -> None:
     Detects which source files changed since the last generation and
     regenerates only the affected artifacts. Use ``--full`` to regenerate
     everything regardless of what changed.
-
-    TODO(T6): wire real refresh orchestrator (refresh.py) here.
     """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    from .classifier import classify_features, classify_modules
+    from .refresh import execute_refresh, plan_refresh
+    from .scanner import scan_repo  # noqa: I001
+
     repo_root = _resolve_repo_root(args)
     agent_memory = _agent_memory_root(repo_root)
     full = getattr(args, "full", False)
-
     mode = "full" if full else "incremental"
+
     print(f"repo-memory: refresh ({mode})")
     print(f"  repo root     : {repo_root}")
     print(f"  target folder : {agent_memory}")
     print()
-    print("  [not yet implemented]")
-    print(f"  Will run a {mode} refresh of all .agent-memory/ artifacts.")
+
+    if not agent_memory.exists():
+        print("  .agent-memory/ not found — run 'memory init' first.")
+        return
+
+    # Determine changed files for incremental mode
+    changed_files: list[str] = []
     if not full:
-        print("  Pass --full to regenerate everything regardless of changes.")
+        from ..incremental import get_changed_files, get_staged_and_unstaged
+        changed_files = get_changed_files(repo_root)
+        if not changed_files:
+            # Fallback: staged and unstaged edits (pre-commit or workdir changes)
+            changed_files = get_staged_and_unstaged(repo_root)
+
+    scan = scan_repo(repo_root)
+    features = classify_features(repo_root, scan)
+    modules = classify_modules(repo_root, scan)
+
+    plan = plan_refresh(changed_files, features, modules, full=full)
+    result = execute_refresh(plan, repo_root, features, modules, scan)
+
+    print(f"  mode          : {result['mode']}")
+    print(f"  changed files : {len(result['changed_files'])}")
+    print(f"  plan          : {result['reason']}")
+    print()
+
+    if result["artifacts_updated"]:
+        print("  Updated:")
+        for a in result["artifacts_updated"]:
+            print(f"    {a}")
+        print()
+
+    if result["artifacts_skipped"]:
+        print("  Unchanged:")
+        for a in result["artifacts_skipped"]:
+            print(f"    {a}")
+        print()
+
+    print("  Done.")
 
 
 # ---------------------------------------------------------------------------

@@ -110,6 +110,26 @@ def save_sources_json(
     return status
 
 
+def save_freshness_json(
+    freshness_data: dict[str, Any],
+    metadata_dir: Path,
+) -> WriteStatus:
+    """Write ``freshness.json`` — tracks when and how memory was last refreshed.
+
+    Args:
+        freshness_data: Dict produced by
+                        :func:`~refresh._generate_freshness_data`.
+        metadata_dir:   Absolute path to ``.agent-memory/metadata/``.
+
+    Returns:
+        :data:`~writer.WriteStatus`.
+    """
+    path = metadata_dir / "freshness.json"
+    status = write_json_if_changed(path, freshness_data)
+    logger.debug("%s freshness.json", status)
+    return status
+
+
 def save_confidence_json(
     features: list[FeatureMemory],
     modules: list[ModuleMemory],
