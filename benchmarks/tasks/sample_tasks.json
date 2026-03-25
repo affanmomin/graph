@@ -1,70 +1,70 @@
 {
   "version": 1,
-  "description": "Sample tasks for context-pack evaluation. Each task has a description, expected signals, and optional expected files.",
+  "description": "Sample tasks for context-pack evaluation against the code-review-graph repo. Tasks 001-006 target the memory subsystem (code_review_graph/memory/) which is the only classified module on this repo. Tasks 007-008 are deliberate stress tests that target files outside the classified module — expected coverage is 0%, showing a real product limitation.",
   "tasks": [
     {
       "id": "task-001",
       "description": "Add a new CLI command to the memory subsystem",
-      "expected_features": ["memory", "cli"],
-      "expected_modules": ["code_review_graph.memory"],
-      "expected_files_contain": ["commands.py", "cli.py"],
-      "notes": "Should surface commands.py, cli.py, and related memory module files"
+      "expected_features": [],
+      "expected_modules": ["code_review_graph/memory"],
+      "expected_files_contain": ["commands"],
+      "notes": "commands.py is in the memory module; should surface it reliably"
     },
     {
       "id": "task-002",
-      "description": "Fix a bug in the Tree-sitter parser for Python files",
-      "expected_features": ["parser", "parsing"],
-      "expected_modules": ["code_review_graph"],
-      "expected_files_contain": ["parser.py"],
-      "notes": "Should surface parser.py strongly; test_parser.py as a related test"
+      "description": "Improve confidence scoring in the memory classifier",
+      "expected_features": [],
+      "expected_modules": ["code_review_graph/memory"],
+      "expected_files_contain": ["classifier", "graph_bridge"],
+      "notes": "Both classifier.py and graph_bridge.py are in the memory module"
     },
     {
       "id": "task-003",
-      "description": "Update the graph store to add a new edge type for inheritance",
-      "expected_features": ["graph"],
-      "expected_modules": ["code_review_graph"],
-      "expected_files_contain": ["graph.py"],
-      "notes": "Should surface graph.py; tests/test_graph.py as related test"
+      "description": "Refactor the context builder to support token budget limits",
+      "expected_features": [],
+      "expected_modules": ["code_review_graph/memory"],
+      "expected_files_contain": ["context_builder"],
+      "notes": "context_builder.py is in the memory module"
     },
     {
       "id": "task-004",
-      "description": "Add a new MCP tool to expose freshness metadata",
-      "expected_features": ["mcp", "memory", "metadata"],
-      "expected_modules": ["code_review_graph.memory"],
-      "expected_files_contain": ["tools.py", "metadata.py"],
-      "notes": "Should surface tools.py and memory/metadata.py"
+      "description": "Change how memory refresh planning decides which artifacts to regenerate",
+      "expected_features": [],
+      "expected_modules": ["code_review_graph/memory"],
+      "expected_files_contain": ["refresh"],
+      "notes": "refresh.py is in the memory module"
     },
     {
       "id": "task-005",
-      "description": "Improve confidence scoring in the memory classifier",
-      "expected_features": ["memory", "classifier"],
-      "expected_modules": ["code_review_graph.memory"],
-      "expected_files_contain": ["classifier.py"],
-      "notes": "Should surface classifier.py and graph_bridge.py"
+      "description": "Add a new MCP tool to expose freshness metadata from .agent-memory",
+      "expected_features": [],
+      "expected_modules": ["code_review_graph/memory"],
+      "expected_files_contain": ["metadata"],
+      "notes": "metadata.py is in the memory module; tools.py is at the root package level (not in the module)"
     },
     {
       "id": "task-006",
-      "description": "Write integration tests for the incremental update pipeline",
-      "expected_features": ["incremental", "testing"],
-      "expected_modules": ["code_review_graph"],
-      "expected_files_contain": ["incremental.py", "test_incremental.py"],
-      "notes": "Should surface incremental.py; existing test_incremental.py as the test anchor"
+      "description": "Update the graph bridge to expose co-neighbor relationships for classification",
+      "expected_features": [],
+      "expected_modules": ["code_review_graph/memory"],
+      "expected_files_contain": ["graph_bridge", "classifier"],
+      "notes": "Both files are in the memory module"
     },
     {
       "id": "task-007",
-      "description": "Generate a D3.js visualization of the dependency graph",
-      "expected_features": ["visualization"],
+      "description": "Fix a bug in the Tree-sitter parser for Python files",
+      "expected_features": [],
       "expected_modules": ["code_review_graph"],
-      "expected_files_contain": ["visualization.py"],
-      "notes": "Should surface visualization.py; test_visualization.py as test"
+      "expected_files_contain": ["parser"],
+      "notes": "STRESS TEST — parser.py is in the root code_review_graph/ package, which is not a classified module. Expected coverage: 0%. This demonstrates the product gap for flat repo layouts."
     },
     {
       "id": "task-008",
-      "description": "Refactor the context builder to support token budget limits",
-      "expected_features": ["memory", "context"],
-      "expected_modules": ["code_review_graph.memory"],
-      "expected_files_contain": ["context_builder.py"],
-      "notes": "Should surface context_builder.py; lookup.py as a related consumer"
+      "description": "Generate a D3.js visualization of the dependency graph",
+      "expected_features": [],
+      "expected_modules": ["code_review_graph"],
+      "expected_files_contain": ["visualization"],
+      "notes": "STRESS TEST — visualization.py is in the root package, not a classified module. Expected coverage: 0%. Shows the limit of directory-keyword classification."
     }
   ]
 }

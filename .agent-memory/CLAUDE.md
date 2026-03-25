@@ -21,19 +21,6 @@
 - `skills/`
 - `tests/`
 
-## Dev notes
-
-This repo **is** the repo-memory product — you are working on the tool itself.
-
-- **Layer A** (existing): `code_review_graph/` — Tree-sitter parser, SQLite graph, MCP tools, CLI
-- **Layer B** (added): `code_review_graph/memory/` — scanner, classifier, generator, writer, refresh, lookup, context_builder, graph_bridge, overrides, commands
-- **Entry points**: `cli.py` (CLI), `main.py` (MCP server), `tools.py` (MCP tool adapters)
-- **Tests**: `tests/` — run with `uv run pytest tests/ --tb=short -q`
-- **Ticket rules**: Do only what the ticket asks. Do not rewrite the graph engine. Keep changes focused.
-- **Shared pipeline**: `run_memory_init_pipeline(root)` in `memory/commands.py` — called by both CLI and MCP. Never duplicate this logic.
-- **Graph bridge**: `memory/graph_bridge.py` — thin adapter; all functions degrade gracefully when `graph.db` is absent.
-- **Security invariants**: No `eval`, `exec`, `pickle`, `yaml.unsafe_load`, or `shell=True`.
-
 ## Key conventions
 
 - **go**: Return errors explicitly; never ignore them.
