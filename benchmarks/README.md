@@ -176,12 +176,31 @@ For each repo:
 
 | Symptom                        | Likely cause                               |
 |-------------------------------|---------------------------------------------|
-| `feature_count < 2`           | Repo too small or scanner excluded too much |
+| `feature_count < 2`           | Repo has no domain-keyword directories (flat layout), or scanner excluded too much |
 | `avg_confidence < 0.5`        | Filesystem heuristics weak; graph not built |
-| `coverage_pct < 50`           | Task description tokens don't match names   |
+| `coverage_pct < 50`           | Task description tokens don't match names, or target file is outside classified modules |
 | `files_returned > 20`         | Scoring threshold too low (`_MIN_SCORE`)    |
-| `tokens_estimated > 40 000`   | Files too large; need token budget in pack  |
+| `tokens_estimated > 40 000`   | Module has many large files; pack returns all of them in fallback mode |
 | No `graph_expanded` slugs     | `.code-review-graph/graph.db` not built     |
+
+### Results on this repo (code-review-graph)
+
+This repo is itself a good stress-test case for the product. Its layout is **module-dominant with no domain-keyword feature directories**:
+
+- `code_review_graph/memory/` — the only classified module (13 files)
+- `code_review_graph/*.py` (parser.py, graph.py, tools.py, etc.) — root package files, **not captured by any classified module**
+
+Expected benchmark behavior on this repo:
+
+| Metric | Expected | Why |
+|--------|----------|-----|
+| `feature_count` | 0 | No domain-keyword subdirectories (`auth/`, `billing/`, etc.) |
+| `module_count` | 1 | Only `code_review_graph/memory` is a named subpackage |
+| `coverage_pct` tasks 001-006 | 100% | Target files are all in the memory module |
+| `coverage_pct` tasks 007-008 | 0% | Deliberate stress tests; target files are in root package |
+| `tokens_estimated` | ~58k | 13 files × large file size; exceeds 40k budget in fallback mode |
+
+Tasks 007 and 008 in `sample_tasks.json` are intentionally failing stress tests. They demonstrate the **root-package blind spot**: files in `code_review_graph/*.py` that are not inside a named subpackage are invisible to the current classifier.
 
 ---
 

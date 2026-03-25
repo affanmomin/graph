@@ -135,7 +135,7 @@ def collect_classification_metrics(
     """Compute classification quality metrics from FeatureMemory/ModuleMemory lists."""
     f_conf = [f.confidence for f in features]
     m_conf = [m.confidence for m in modules]
-    features_with_tests = sum(1 for f in features if getattr(f, "test_files", []))
+    features_with_tests = sum(1 for f in features if getattr(f, "tests", []))
     modules_with_deps = sum(1 for m in modules if getattr(m, "dependencies", []))
 
     return {
