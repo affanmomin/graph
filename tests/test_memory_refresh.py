@@ -150,6 +150,7 @@ class TestPlanRefreshIncremental:
         plan = plan_refresh(["src/auth/login.py"], features, modules)
 
         assert "1 changed file" in plan.reason
+        assert "directly impacted" in plan.reason
 
     # --- structural triggers ---
 
@@ -313,7 +314,8 @@ class TestExecuteRefresh:
         result = execute_refresh(plan, tmp_path, features, modules, scan)
 
         assert set(result.keys()) == {
-            "mode", "changed_files", "artifacts_updated", "artifacts_skipped", "reason"
+            "mode", "changed_files", "artifacts_updated", "artifacts_skipped",
+            "graph_expanded_artifacts", "reason"
         }
 
     def test_repo_architecture_updated_when_flagged(self, features, modules, tmp_path):
@@ -424,6 +426,9 @@ class TestGenerateFreshnessData:
         assert "artifacts_refreshed" in data
         assert "impacted_features" in data
         assert "impacted_modules" in data
+        assert "graph_expanded_features" in data
+        assert "graph_expanded_modules" in data
+        assert "graph_expanded_files" in data
         assert "reason" in data
 
     def test_mode_matches_plan(self, features, modules):

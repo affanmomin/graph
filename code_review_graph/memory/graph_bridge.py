@@ -13,6 +13,7 @@ get_related_tests(seed_files, repo_root, max_tests=5) -> list[str]
 get_structural_neighbors(seed_files, repo_root, max_neighbors=5) -> list[str]
 get_explain_context(seed_files, repo_root, ...) -> ExplainGraphContext | None
 get_change_impact(changed_files, repo_root, ...) -> ChangeImpactContext | None
+get_graph_expanded_files(changed_files, repo_root, max_expansion=20) -> list[str]
 
 Graph capabilities reused
 -------------------------
@@ -447,3 +448,44 @@ def get_change_impact(
     except Exception as exc:
         logger.debug("get_change_impact: graph query failed: %s", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Refresh planning expansion
+# ---------------------------------------------------------------------------
+
+
+def get_graph_expanded_files(
+    changed_files: list[str],
+    repo_root: str | Path,
+    max_expansion: int = 20,
+) -> list[str]:
+    """Return non-test source files structurally reachable from *changed_files*.
+
+    Used by refresh planning to expand artifact impact beyond direct file
+    membership.  One BFS hop only — keeps refresh bounded and avoids
+    cascading refreshes across the entire repo.
+
+    Excludes the seed files themselves and test files.  Capped at
+    *max_expansion* to keep the refresh plan bounded.
+
+    Returns an empty list when graph data is unavailable or any error occurs.
+    """
+    if not changed_files:
+        return []
+    p = _db_path(Path(repo_root))
+    seed_set = set(changed_files)
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return []
+            result = gs.get_impact_radius(list(changed_files), max_depth=1, max_nodes=300)
+            related = sorted(
+                f for f in result["impacted_files"]
+                if f not in seed_set and not _is_test_file(f)
+            )
+            return related[:max_expansion]
+    except Exception as exc:
+        logger.debug("get_graph_expanded_files: graph query failed: %s", exc)
+        return []
