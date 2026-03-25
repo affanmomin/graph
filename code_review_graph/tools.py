@@ -1068,16 +1068,41 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
     from .memory.scanner import scan_repo
     from .memory.classifier import classify_features, classify_modules
     from .memory.generator import generate_feature_doc, generate_module_doc
+    from .memory.graph_bridge import get_explain_context
 
     root = _get_memory_root(repo_root)
     slug = name.lower().replace(" ", "-").replace("/", "-").replace(".", "-")
     agent_memory = root / ".agent-memory"
+
+    def _graph_fields(seed_files: list[str]) -> dict:
+        """Return graph-enriched fields to merge into the tool response."""
+        ctx = get_explain_context(seed_files, root)
+        if ctx is None:
+            return {}
+        return {
+            "graph_related_files": ctx.related_files,
+            "graph_related_tests": ctx.related_tests,
+            "graph_structural_neighbors": ctx.structural_neighbors,
+            "graph_fan_in_count": ctx.fan_in_count,
+            "graph_fan_in_sample": ctx.fan_in_sample,
+            "graph_fan_out_sample": ctx.fan_out_sample,
+        }
 
     # Try persisted artifacts first
     for subdir, kind in (("features", "feature"), ("modules", "module")):
         candidate = agent_memory / subdir / f"{slug}.md"
         if candidate.exists():
             content = candidate.read_text(encoding="utf-8", errors="replace")
+            # Extract file list from the artifact's feature/module if we can find it
+            # via live classification so graph enrichment still works.
+            scan = scan_repo(root)
+            features = classify_features(root, scan)
+            modules = classify_modules(root, scan)
+            seed: list[str] = []
+            for obj in (features if kind == "feature" else modules):
+                if obj.slug() == slug or obj.name.lower() == name.lower():
+                    seed = obj.files
+                    break
             return {
                 "status": "ok",
                 "kind": kind,
@@ -1086,6 +1111,7 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
                 "artifact_path": str(candidate.relative_to(root)),
                 "summary": f"{kind.capitalize()} '{name}' loaded from .agent-memory/{subdir}/{slug}.md",
                 "content": content,
+                **_graph_fields(seed),
             }
 
     # Fallback: classify on-the-fly and generate the doc
@@ -1110,6 +1136,7 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
                 "files": feature.files,
                 "tests": feature.tests,
                 "confidence": feature.confidence,
+                **_graph_fields(feature.files),
             }
 
     for module in modules:
@@ -1128,6 +1155,7 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
                 "files": module.files,
                 "tests": module.tests,
                 "confidence": module.confidence,
+                **_graph_fields(module.files),
             }
 
     return {
@@ -1149,9 +1177,10 @@ def memory_recent_changes(
 ) -> dict[str, Any]:
     """Show recent meaningful changes for a feature, module, or file path.
 
-    Reads ``.agent-memory/changes/recent.md`` if it exists.  Incremental
-    change tracking is not yet implemented — call ``memory_refresh`` after
-    commits to keep memory up to date.
+    Reads ``.agent-memory/changes/recent.md`` if it exists.  When a target is
+    provided, also uses the graph engine to surface structurally impacted
+    neighbours of the changed area — files and tests that may be affected
+    beyond the directly changed files.
 
     Args:
         target:    Optional feature name, module name, or file path to filter
@@ -1160,22 +1189,64 @@ def memory_recent_changes(
 
     Returns:
         Recent changes content, or a ``not_ready`` response with instructions.
+        When graph data is available, the response also includes
+        ``graph_impacted_files`` and ``graph_impacted_tests``.
     """
+    from .memory.scanner import scan_repo
+    from .memory.classifier import classify_features, classify_modules
+    from .memory.graph_bridge import get_change_impact
+
     root = _get_memory_root(repo_root)
     recent_md = root / ".agent-memory" / "changes" / "recent.md"
+
+    def _graph_impact_fields(seed_files: list[str]) -> dict:
+        """Return graph impact fields to merge into the response."""
+        ctx = get_change_impact(seed_files, root)
+        if ctx is None:
+            return {}
+        return {
+            "graph_impacted_files": ctx.impacted_files,
+            "graph_impacted_tests": ctx.impacted_tests,
+            "graph_impact_count": ctx.total_impacted,
+            "graph_impact_truncated": ctx.truncated,
+        }
+
+    def _seed_files_for_target(t: str) -> list[str]:
+        """Resolve target to a list of seed files for graph querying."""
+        try:
+            scan = scan_repo(root)
+            features = classify_features(root, scan)
+            modules = classify_modules(root, scan)
+            t_lower = t.lower()
+            for f in features:
+                if f.name.lower() == t_lower or f.slug() == t_lower.replace(" ", "-"):
+                    return f.files[:10]
+            for m in modules:
+                if m.name.lower() == t_lower or m.slug() == t_lower.replace(".", "-"):
+                    return m.files[:10]
+            # Treat target as a file path
+            return [t]
+        except Exception:
+            return []
 
     if recent_md.exists():
         content = recent_md.read_text(encoding="utf-8", errors="replace")
         if target:
-            # Best-effort filter: return sections mentioning the target
             lines = content.splitlines()
             filtered = [ln for ln in lines if not ln or target.lower() in ln.lower()]
             content = "\n".join(filtered) if filtered else content
+
+        graph_fields: dict = {}
+        if target:
+            seeds = _seed_files_for_target(target)
+            graph_fields = _graph_impact_fields(seeds)
+
         return {
             "status": "ok",
             "summary": "Recent changes loaded from .agent-memory/changes/recent.md",
             "target": target,
             "content": content,
+            **graph_fields,
         }
 
     return {

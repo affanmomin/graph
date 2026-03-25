@@ -417,7 +417,7 @@ def _maybe_refresh_memory(repo_root: Path, changed_files: list[str]) -> None:
         scan = scan_repo(repo_root)
         features = classify_features(repo_root, scan)
         modules = classify_modules(repo_root, scan)
-        plan = plan_refresh(changed_files, features, modules)
+        plan = plan_refresh(changed_files, features, modules, repo_root=repo_root)
         execute_refresh(plan, repo_root, features, modules, scan)
         logger.info("Memory refresh: %s", plan.reason)
     except Exception as exc:  # noqa: BLE001

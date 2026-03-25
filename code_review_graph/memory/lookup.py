@@ -148,7 +148,11 @@ def match_target(
 # ---------------------------------------------------------------------------
 
 
-def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
+def explain_match(
+    match: TargetMatch,
+    agent_memory_root: Path,
+    repo_root: Path | None = None,
+) -> str:
     """Return a concise explanation string for *match*.
 
     Reads the stored artifact file when available; generates an on-the-fly
@@ -157,6 +161,9 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
     Args:
         match:             A :class:`TargetMatch` returned by :func:`match_target`.
         agent_memory_root: Absolute path to ``.agent-memory/``.
+        repo_root:         Optional repo root.  When provided and a graph.db
+                           exists, a ``Graph structure`` section is appended with
+                           real structural context from the graph engine.
 
     Returns:
         Multi-line string ready to print.
@@ -198,7 +205,7 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
             lines.append(f"    … and {len(obj.files) - _MAX_EXPLAIN_FILES} more")
         lines.append("")
 
-    # Dependencies / neighbors
+    # Dependencies / neighbors (heuristic)
     deps = getattr(obj, "dependencies", [])
     if deps:
         lines.append("  Dependencies / neighbors:")
@@ -206,7 +213,7 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
             lines.append(f"    - {d}")
         lines.append("")
 
-    # Related tests
+    # Related tests (heuristic)
     if obj.tests:
         lines.append("  Related tests:")
         for t in sorted(obj.tests)[:_MAX_EXPLAIN_TESTS]:
@@ -216,6 +223,12 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
         lines.append("")
     else:
         lines.append("  Related tests : none detected")
+        lines.append("")
+
+    # Graph structure (optional — only when repo_root is supplied and graph available)
+    graph_section = _graph_explain_section(obj.files, repo_root, heuristic_tests=set(obj.tests))
+    if graph_section:
+        lines.extend(graph_section)
         lines.append("")
 
     # Safe-boundary warnings from safe-boundaries.md
@@ -246,15 +259,22 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
+def changed_match(
+    match: TargetMatch,
+    agent_memory_root: Path,
+    repo_root: Path | None = None,
+) -> str:
     """Return a change summary string for *match*.
 
     Reads ``freshness.json`` and ``changes/recent.md``, filtering for files
-    belonging to the matched feature or module.
+    belonging to the matched feature or module.  When *repo_root* is supplied
+    and a graph.db exists, a ``Graph impact`` section is appended showing
+    structural neighbours and tests affected by the directly changed files.
 
     Args:
         match:             A :class:`TargetMatch` returned by :func:`match_target`.
         agent_memory_root: Absolute path to ``.agent-memory/``.
+        repo_root:         Optional repo root for graph enrichment.
 
     Returns:
         Multi-line string ready to print.
@@ -278,6 +298,13 @@ def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
         )
         # Still surface recent.md if it was written by some other means
         _append_recent_md_lines(lines, agent_memory_root, match)
+        # Even without freshness, graph can show structural impact from area files
+        obj_no_fresh = match.obj
+        fallback_seeds = getattr(obj_no_fresh, "files", [])[:10] if obj_no_fresh else []
+        graph_sec = _graph_change_section(fallback_seeds, repo_root, agent_memory_root)
+        if graph_sec:
+            lines.append("")
+            lines.extend(graph_sec)
         if match.alternatives:
             lines.append("")
             lines.append(f"  Similar areas: {', '.join(match.alternatives)}")
@@ -306,6 +333,13 @@ def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
         lines.append("")
     else:
         lines.append("  No recent changes detected in this area.")
+        lines.append("")
+
+    # Graph impact — seeds are the directly changed area files (or obj.files if none)
+    graph_seeds = area_files if area_files else (getattr(obj, "files", [])[:10] if obj else [])
+    graph_sec = _graph_change_section(graph_seeds, repo_root, agent_memory_root)
+    if graph_sec:
+        lines.extend(graph_sec)
         lines.append("")
 
     # Impacted in last refresh?
@@ -347,6 +381,179 @@ def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _graph_change_section(
+    seed_files: list[str],
+    repo_root: Path | None,
+    agent_memory_root: Path | None = None,
+) -> list[str]:
+    """Build the ``Graph impact`` section lines for ``changed_match``.
+
+    Uses ``get_change_impact`` to find files and tests structurally reachable
+    from *seed_files* within one BFS hop.  When *agent_memory_root* is
+    supplied, impacted files are also mapped to named features/modules via
+    ``sources.json`` to surface which areas are affected.
+
+    Returns an empty list when graph data is unavailable or produces no
+    additional information.  Never raises.
+    """
+    if not repo_root or not seed_files:
+        return []
+    try:
+        from .graph_bridge import get_change_impact
+        ctx = get_change_impact(seed_files, repo_root)
+        if ctx is None:
+            return []
+
+        lines: list[str] = []
+        has_content = False
+
+        if ctx.impacted_files:
+            if not has_content:
+                lines.append("  Graph impact:")
+                has_content = True
+            lines.append(
+                f"    Structural neighbors : {', '.join(ctx.impacted_files)}"
+            )
+
+        if ctx.impacted_tests:
+            if not has_content:
+                lines.append("  Graph impact:")
+                has_content = True
+            lines.append(
+                f"    Tests to re-run      : {', '.join(ctx.impacted_tests)}"
+            )
+
+        # Map impacted files to named features/modules via sources.json
+        areas = _impacted_areas(ctx.impacted_files, agent_memory_root, set(seed_files))
+        if areas:
+            if not has_content:
+                lines.append("  Graph impact:")
+                has_content = True
+            lines.append(f"    Impacted areas       : {', '.join(areas)}")
+
+        if has_content and ctx.total_impacted > 0:
+            trunc = " (truncated)" if ctx.truncated else ""
+            lines.append(
+                f"    Impact scope         : {ctx.total_impacted} node(s) impacted{trunc}"
+            )
+
+        return lines
+    except Exception as exc:
+        logger.debug("_graph_change_section: failed: %s", exc)
+        return []
+
+
+def _impacted_areas(
+    impacted_files: list[str],
+    agent_memory_root: Path | None,
+    seed_set: set[str],
+) -> list[str]:
+    """Return sorted feature/module names that own any of *impacted_files*.
+
+    Reads ``sources.json`` which maps every tracked file to its owning
+    features/modules.  Returns an empty list if the file is absent, cannot
+    be parsed, or no matches are found.  Never raises.
+    """
+    if not agent_memory_root or not impacted_files:
+        return []
+    try:
+        from .metadata import load_sources_json
+        data = load_sources_json(agent_memory_root / "metadata")
+        if not data:
+            return []
+        sources: dict = data.get("sources", {})
+        areas: set[str] = set()
+        for fp in impacted_files:
+            if fp in seed_set:
+                continue
+            for entry in sources.get(fp, []):
+                # entry format: "feature:Name" or "module:name"
+                if ":" in entry:
+                    _, name = entry.split(":", 1)
+                    areas.add(name)
+        return sorted(areas)
+    except Exception as exc:
+        logger.debug("_impacted_areas: failed: %s", exc)
+        return []
+
+
+def _graph_explain_section(
+    seed_files: list[str],
+    repo_root: Path | None,
+    heuristic_tests: set[str],
+) -> list[str]:
+    """Build the ``Graph structure`` section lines for ``explain_match``.
+
+    Queries the graph bridge for structural context on *seed_files* and
+    formats it as indented output lines.  Returns an empty list when graph
+    data is unavailable or produces no additional information.
+
+    Never raises — all exceptions are caught internally.
+    """
+    if not repo_root or not seed_files:
+        return []
+    try:
+        from .graph_bridge import get_explain_context
+        ctx = get_explain_context(seed_files, repo_root)
+        if ctx is None:
+            return []
+
+        lines: list[str] = []
+        has_content = False
+
+        # Graph-linked tests not already shown in heuristic section
+        new_tests = [t for t in ctx.related_tests if t not in heuristic_tests]
+        if new_tests:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(f"    Graph-linked tests   : {', '.join(new_tests)}")
+
+        # Structural neighbors (IMPORTS_FROM in either direction)
+        if ctx.structural_neighbors:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(
+                f"    Structural neighbors : {', '.join(ctx.structural_neighbors)}"
+            )
+
+        # Fan-in: who depends on this area
+        if ctx.fan_in_count > 0:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            sample_str = (
+                f" — {', '.join(ctx.fan_in_sample)}" if ctx.fan_in_sample else ""
+            )
+            lines.append(
+                f"    Imported/called by   : {ctx.fan_in_count} file(s){sample_str}"
+            )
+
+        # Fan-out: what this area depends on
+        if ctx.fan_out_sample:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(
+                f"    Depends on           : {', '.join(ctx.fan_out_sample)}"
+            )
+
+        # Additional related files not in heuristic seed
+        seed_set = set(seed_files)
+        new_files = [f for f in ctx.related_files if f not in seed_set]
+        if new_files:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(f"    Related files (1-hop): {', '.join(new_files)}")
+
+        return lines
+    except Exception as exc:
+        logger.debug("_graph_explain_section: failed: %s", exc)
+        return []
 
 
 def _append_recent_md_lines(

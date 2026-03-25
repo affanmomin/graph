@@ -299,7 +299,7 @@ def memory_refresh_command(args: argparse.Namespace) -> None:
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
 
-    plan = plan_refresh(changed_files, features, modules, full=full)
+    plan = plan_refresh(changed_files, features, modules, full=full, repo_root=repo_root)
     result = execute_refresh(plan, repo_root, features, modules, scan)
 
     print(f"  mode          : {result['mode']}")
@@ -355,7 +355,7 @@ def memory_explain_command(args: argparse.Namespace) -> None:
     modules = classify_modules(repo_root, scan)
 
     match = match_target(target, agent_memory, features, modules)
-    print(explain_match(match, agent_memory))
+    print(explain_match(match, agent_memory, repo_root=repo_root))
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +494,7 @@ def memory_changed_command(args: argparse.Namespace) -> None:
     modules = classify_modules(repo_root, scan)
 
     match = match_target(target, agent_memory, features, modules)
-    print(changed_match(match, agent_memory))
+    print(changed_match(match, agent_memory, repo_root=repo_root))
 
 
 # ---------------------------------------------------------------------------
