@@ -173,8 +173,16 @@ def explain_match(
 
     lines: list[str] = []
 
-    # Header
-    kind_label = "Feature" if match.kind == "feature" else "Module"
+    # Header — for "path" matches the kind is "path" but the underlying obj is a
+    # FeatureMemory or ModuleMemory; detect the label from the object type so we
+    # don't incorrectly print "Module:" for a feature looked up by file path.
+    if match.kind == "feature":
+        kind_label = "Feature"
+    elif match.kind == "module":
+        kind_label = "Module"
+    else:  # "path" — derive label from the underlying object type
+        from .models import FeatureMemory as _FeatureMemory
+        kind_label = "Feature" if isinstance(match.obj, _FeatureMemory) else "Module"
     lines.append(f"{kind_label}: {match.name}")
     lines.append("")
 
@@ -503,52 +511,49 @@ def _graph_explain_section(
         lines: list[str] = []
         has_content = False
 
+        def _header() -> None:
+            nonlocal has_content
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+
+        def _bullets(items: list[str]) -> None:
+            for item in items:
+                lines.append(f"      - {item}")
+
         # Graph-linked tests not already shown in heuristic section
         new_tests = [t for t in ctx.related_tests if t not in heuristic_tests]
         if new_tests:
-            if not has_content:
-                lines.append("  Graph structure:")
-                has_content = True
-            lines.append(f"    Graph-linked tests   : {', '.join(new_tests)}")
+            _header()
+            lines.append("    Graph-linked tests:")
+            _bullets(new_tests)
 
         # Structural neighbors (IMPORTS_FROM in either direction)
         if ctx.structural_neighbors:
-            if not has_content:
-                lines.append("  Graph structure:")
-                has_content = True
-            lines.append(
-                f"    Structural neighbors : {', '.join(ctx.structural_neighbors)}"
-            )
+            _header()
+            lines.append("    Structural neighbors:")
+            _bullets(ctx.structural_neighbors)
 
-        # Fan-in: who depends on this area
+        # Fan-in: who depends on / calls into this area
         if ctx.fan_in_count > 0:
-            if not has_content:
-                lines.append("  Graph structure:")
-                has_content = True
-            sample_str = (
-                f" — {', '.join(ctx.fan_in_sample)}" if ctx.fan_in_sample else ""
-            )
-            lines.append(
-                f"    Imported/called by   : {ctx.fan_in_count} file(s){sample_str}"
-            )
+            _header()
+            lines.append(f"    Imported/called by: {ctx.fan_in_count} file(s)")
+            if ctx.fan_in_sample:
+                _bullets(ctx.fan_in_sample)
 
-        # Fan-out: what this area depends on
+        # Fan-out: what this area imports from
         if ctx.fan_out_sample:
-            if not has_content:
-                lines.append("  Graph structure:")
-                has_content = True
-            lines.append(
-                f"    Depends on           : {', '.join(ctx.fan_out_sample)}"
-            )
+            _header()
+            lines.append("    Depends on:")
+            _bullets(ctx.fan_out_sample)
 
         # Additional related files not in heuristic seed
         seed_set = set(seed_files)
         new_files = [f for f in ctx.related_files if f not in seed_set]
         if new_files:
-            if not has_content:
-                lines.append("  Graph structure:")
-                has_content = True
-            lines.append(f"    Related files (1-hop): {', '.join(new_files)}")
+            _header()
+            lines.append("    Related files (1-hop):")
+            _bullets(new_files)
 
         return lines
     except Exception as exc:

@@ -528,9 +528,84 @@ class TestExplainMatchGraph:
         with patch("code_review_graph.graph.GraphStore", return_value=store):
             output = explain_match(match, tmp_path, repo_root=tmp_path)
 
-        # Path matches render with Module/Feature header based on kind logic;
-        # the important thing is the graph section appears
+        # Graph section appears
         assert "src/auth/middleware.py" in output
+
+    def test_path_match_to_feature_shows_feature_label(self, tmp_path: Path):
+        """A path match whose underlying obj is a FeatureMemory must show 'Feature:'."""
+        from code_review_graph.memory.lookup import TargetMatch
+        feature = _auth_feature()
+        match = TargetMatch(
+            kind="path",
+            name="Authentication (via path: src/auth/token.py)",
+            slug=feature.slug(),
+            obj=feature,
+            artifact_path=None,
+            score=0.9,
+        )
+        # No graph needed — just checking the header label
+        output = explain_match(match, tmp_path, repo_root=None)
+        assert output.startswith("Feature:")
+
+    def test_path_match_to_module_shows_module_label(self, tmp_path: Path):
+        """A path match whose underlying obj is a ModuleMemory must show 'Module:'."""
+        from code_review_graph.memory.lookup import TargetMatch
+        module = _billing_module()
+        match = TargetMatch(
+            kind="path",
+            name="src.billing (via path: src/billing/invoice.py)",
+            slug=module.slug(),
+            obj=module,
+            artifact_path=None,
+            score=0.9,
+        )
+        output = explain_match(match, tmp_path, repo_root=None)
+        assert output.startswith("Module:")
+
+    def test_graph_section_uses_per_line_bullets(self, tmp_path: Path):
+        """Multiple structural neighbors must each appear on their own line."""
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        node = _make_node("src/auth/token.py::verify", "src/auth/token.py")
+        # Two importers → fan-in count = 2, sample has two files
+        importer_a = _make_edge(
+            kind="IMPORTS_FROM",
+            source="src/api/routes.py::login",
+            target="src/auth/token.py::verify",
+            file_path="src/api/routes.py",
+        )
+        importer_b = _make_edge(
+            kind="IMPORTS_FROM",
+            source="src/workers/job.py::run",
+            target="src/auth/token.py::verify",
+            file_path="src/workers/job.py",
+        )
+        store = _make_store(
+            stats_nodes=10,
+            nodes_by_file=[node],
+            edges_by_target=[importer_a, importer_b],
+        )
+        feature = _auth_feature()
+        from code_review_graph.memory.lookup import TargetMatch
+        match = TargetMatch(
+            kind="feature", name=feature.name, slug=feature.slug(),
+            obj=feature, artifact_path=None, score=1.0,
+        )
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            output = explain_match(match, tmp_path, repo_root=tmp_path)
+
+        lines = output.splitlines()
+        # Each file must be on its own line (bullet format), not comma-joined
+        file_lines = [l for l in lines if "src/api/routes.py" in l or "src/workers/job.py" in l]
+        assert len(file_lines) >= 2, (
+            "Each file should be on its own line, not comma-separated"
+        )
+        # Must not appear on a single line together
+        combined = [l for l in lines if "src/api/routes.py" in l and "src/workers/job.py" in l]
+        assert combined == [], "Files must not be comma-joined on one line"
 
     def test_graph_exception_does_not_break_output(self, tmp_path: Path):
         """If graph query raises, the rest of explain_match output is still correct."""
