@@ -31,10 +31,15 @@ cd your-project
 code-review-graph build
 code-review-graph memory init
 
+# Load memory into every Claude Code session — add this to your CLAUDE.md:
+# @.agent-memory/CLAUDE.md
+
 # Commit the memory to Git so every session starts with context
 git add .agent-memory/
 git commit -m "chore: add repo memory"
 ```
+
+> **Important**: `memory init` prints a reminder, but you must manually add `@.agent-memory/CLAUDE.md` to your repo's `CLAUDE.md`. Claude Code does not auto-load files in subdirectories — the `@` import makes it explicit.
 
 Now tell Claude what you're working on:
 

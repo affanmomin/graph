@@ -4,6 +4,7 @@
 
 ## Major boundaries
 
+- **`benchmarks/`** — production source code
 - **`code_review_graph/`** — production source code
 - **`tests/`** — test suite (separate from production code)
 - **`docs/`** — documentation
@@ -18,6 +19,7 @@
 
 ## Inspect first
 
+- `benchmarks/` — main source code
 - `code_review_graph/` — main source code
 - `pyproject.toml` — project metadata and dependencies
 - `README.md` — project intent and setup

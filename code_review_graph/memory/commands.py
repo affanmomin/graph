@@ -250,6 +250,56 @@ def memory_init_command(args: argparse.Namespace) -> None:
         for note in scan.notes:
             print(f"    - {note}")
         print()
+
+    # Fix 5: graph-missing degraded mode notice
+    from .graph_bridge import graph_available
+    if not graph_available(repo_root):
+        print("  Note: graph.db not found — running in heuristic-only mode.")
+        print("  For richer context (import chains, call graphs, blast radius), run:")
+        print("    code-review-graph build")
+        print()
+
+    # Fix 7: .gitignore check — warn if .agent-memory/ would be excluded
+    gitignore_path = repo_root / ".gitignore"
+    if gitignore_path.exists():
+        try:
+            gi_text = gitignore_path.read_text(encoding="utf-8", errors="replace")
+            gi_lines = [ln.strip() for ln in gi_text.splitlines()]
+            agent_ignored = any(
+                ln in (".agent-memory", ".agent-memory/")
+                for ln in gi_lines if not ln.startswith("#")
+            )
+            graph_ignored = any(
+                ln in (".code-review-graph", ".code-review-graph/")
+                for ln in gi_lines if not ln.startswith("#")
+            )
+            if agent_ignored:
+                print("  WARNING: .agent-memory/ appears in .gitignore — memory will NOT be committed.")
+                print("  Remove it from .gitignore so teammates share this memory.")
+                print()
+            if not graph_ignored:
+                print("  Tip: add '.code-review-graph/' to .gitignore — it's local-only state.")
+                print()
+        except OSError:
+            pass
+
+    # Fix 1: CLAUDE.md auto-load guidance
+    claude_md_path = repo_root / "CLAUDE.md"
+    agent_claude_ref = "@.agent-memory/CLAUDE.md"
+    has_ref = False
+    if claude_md_path.exists():
+        try:
+            has_ref = agent_claude_ref in claude_md_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    if not has_ref:
+        print("  *** ACTION REQUIRED — load memory into Claude Code ***")
+        print(f"  Add this line to your CLAUDE.md so every session gets context:")
+        print(f"    {agent_claude_ref}")
+        print()
+        print("  Without it, Claude Code will NOT auto-load .agent-memory/CLAUDE.md.")
+        print()
+
     print("  Done. Commit .agent-memory/ to share memory with your team.")
 
 

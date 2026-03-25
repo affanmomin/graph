@@ -3,6 +3,7 @@
 - [USAGE.md](USAGE.md) — How to install and use
 - [FEATURES.md](FEATURES.md) — What's included, changelog
 - [COMMANDS.md](COMMANDS.md) — All MCP tools, skills, and CLI commands
+- [MEMORY.md](MEMORY.md) — Repo-memory feature guide (`.agent-memory/`, CLI, MCP, overrides)
 - [LLM-OPTIMIZED-REFERENCE.md](LLM-OPTIMIZED-REFERENCE.md) — Token-optimized reference (Claude Code reads this)
 - [architecture.md](architecture.md) — System design and data flow
 - [schema.md](schema.md) — Graph node/edge schema and SQLite tables

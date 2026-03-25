@@ -92,6 +92,45 @@ repo_root: str | None
 section_name: str    # usage, review-delta, review-pr, commands, legal, watch, embeddings, languages, troubleshooting
 ```
 
+## Memory MCP Tools
+
+Five MCP tools expose the repo-memory subsystem to Claude Code. All accept an optional `repo_root` parameter.
+
+### `memory_init`
+```
+repo_root: str | None    # Auto-detected
+```
+Scan the repo and generate (or refresh) all `.agent-memory/` artifacts. Returns a summary with counts of features, modules, and write statuses.
+
+### `memory_explain`
+```
+target: str              # Feature name, module name, or file path
+repo_root: str | None
+```
+Return the stored memory explanation for a feature, module, or file path. Falls back to live classification when `.agent-memory/` is absent.
+
+### `memory_prepare_context`
+```
+task: str                # Natural-language task description
+repo_root: str | None
+```
+Build a focused context pack for the given task. Returns relevant features, modules, files, tests, warnings, and a task summary.
+
+### `memory_changed`
+```
+target: str              # Feature name, module name, or file path
+repo_root: str | None
+```
+Show recent meaningful changes in the specified area. Surfaces git history filtered to the area plus graph-derived blast radius.
+
+### `memory_annotate`
+```
+repo_root: str | None
+```
+Scaffold `.agent-memory/overrides/global.yaml` (never overwrites existing content). Returns the path to the override file for manual editing.
+
+---
+
 ## CLI Commands
 
 ```bash
@@ -117,6 +156,33 @@ code-review-graph visualize
 
 # Start MCP server
 code-review-graph serve
+```
+
+### Repo-memory CLI commands
+
+```bash
+# Generate .agent-memory/ artifacts (run once, then commit)
+code-review-graph memory init
+code-review-graph memory init --repo /path/to/repo
+
+# Refresh after changes (incremental by default)
+code-review-graph memory refresh
+code-review-graph memory refresh --full
+
+# Explain a feature, module, or file path
+code-review-graph memory explain authentication
+code-review-graph memory explain src/payments/
+
+# Build task context pack for a Claude Code session
+code-review-graph memory prepare-context "add rate limiting to the API"
+code-review-graph memory prepare-context "fix auth bug" --json
+
+# Show recent changes in an area
+code-review-graph memory changed authentication
+code-review-graph memory changed src/api/
+
+# Edit human override guidance
+code-review-graph memory annotate
 ```
 
 ## API Response Schemas
