@@ -507,7 +507,7 @@ def _detect_cross_cutting(
 
 
 def _source_files_under(repo_root: Path, directory: Path) -> list[str]:
-    """Return repo-relative paths of all source files under *directory*."""
+    """Return repo-relative paths of all *non-test* source files under *directory*."""
     files: list[str] = []
     if not directory.is_dir():
         return files
@@ -520,8 +520,15 @@ def _source_files_under(repo_root: Path, directory: Path) -> list[str]:
             continue
         if any(p in _SKIP_DIRS or p.startswith(".") for p in parts):
             continue
-        if f.suffix.lower() in _EXT_TO_LANG:
-            files.append(str(f.relative_to(repo_root)).replace("\\", "/"))
+        if f.suffix.lower() not in _EXT_TO_LANG:
+            continue
+        # Exclude test files so they don't appear in the "Main files" list
+        stem = f.stem.lower()
+        if stem.startswith(_TEST_PREFIXES) or stem.endswith(_TEST_SUFFIXES):
+            continue
+        if any(p in _TEST_DIRS for p in parts):
+            continue
+        files.append(str(f.relative_to(repo_root)).replace("\\", "/"))
     return sorted(files)
 
 

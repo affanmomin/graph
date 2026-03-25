@@ -364,10 +364,14 @@ def _build_warnings(
     warnings: list[str] = []
 
     if fallback:
-        warnings.append(
-            "No specific area matched this task. Showing broadest available context. "
-            "Run `memory init` if .agent-memory/ artifacts are missing or stale."
-        )
+        if relevant_features or relevant_modules:
+            warnings.append(
+                "No specific area matched this task — showing broadest available context."
+            )
+        else:
+            warnings.append(
+                "No areas classified yet. Run `memory init` to generate context artifacts."
+            )
 
     # Features with no tests
     testless = [f.name for f in relevant_features if not f.tests]

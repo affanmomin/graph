@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.9.0] - 2026-03-25
+
+### Added
+- **Repo-memory subsystem** (`code_review_graph/memory/`): Layer B of the architecture — classifies your codebase into features and modules, writes durable `.agent-memory/` Markdown artifacts committed to Git, and serves task-aware context packs to Claude Code so you stop re-explaining your repo every session.
+  - `memory init` — scan repo, classify features/modules, write `.agent-memory/` artifacts
+  - `memory refresh` — incremental re-classification tied to git changes, with freshness metadata
+  - `memory prepare-context <task>` — build a focused `TaskContextPack` for a natural-language task
+  - `memory explain <target>` — explain a feature, module, or file path
+  - `memory changed <target>` — show recent changes in an area, graph-enriched where available
+  - `memory annotate` — edit human override YAML to influence classification and context building
+- **5 new MCP tools** (`memory_init`, `memory_prepare_context`, `memory_explain`, `memory_changed`, `memory_annotate`) exposing the full memory subsystem to Claude Code via the MCP protocol
+- **Graph enrichment for context packs**: `context_builder.py` queries `graph.db` (when available) via `graph_bridge.py` to add structurally related files, tests, import neighbours, and symbol-matched files
+- **Human overrides** (`.agent-memory/overrides/*.yaml`): `always_include`, `never_edit`, and `task_hints` fields let developers correct classifier output without modifying source
+- **Freshness and confidence metadata** (`metadata/freshness.json`, `metadata/confidence.json`): every artifact carries last-refreshed timestamp and per-classification confidence score
+- **Benchmark harness** (`benchmarks/`): automated metric runner + manual scorecard template measuring classification quality, context-pack relevance, and refresh correctness across classification, context packs, lookup, and refresh layers
+
+### Fixed
+- `memory changed`: show area file list when no refresh data exists instead of a dead-end message
+- `memory prepare-context`: fallback warning no longer fires contradictorily when fallback-selected features are present; split into two distinct messages depending on whether any areas exist
+- Classifier `_source_files_under()`: test files are now excluded from feature/module `files` lists, eliminating the "test file in Main files + no tests" contradiction
+- `memory init`: validate repo path exists and is a directory before running pipeline; exit with clear error on invalid path
+
+### Changed
+- CLI banner subtitle updated from "Structural knowledge graph for smarter code reviews" to "Graph-powered repo memory for Claude Code. / Stop re-explaining your codebase every session."
+
 ## [1.8.4] - 2026-03-20
 
 ### Added

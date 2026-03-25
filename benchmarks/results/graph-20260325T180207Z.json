@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "repo": "/Users/apple/Desktop/graph",
+  "timestamp": "20260325T180207Z",
+  "classification": {
+    "feature_count": 0,
+    "module_count": 1,
+    "avg_feature_confidence": 0.0,
+    "avg_module_confidence": 0.85,
+    "features_with_tests": 0,
+    "modules_with_deps": 0
+  },
+  "context_packs": [
+    {
+      "task_id": "task-001",
+      "description": "Add a new CLI command to the memory subsystem",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 1,
+      "expected_files_total": 1,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-002",
+      "description": "Improve confidence scoring in the memory classifier",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 2,
+      "expected_files_total": 2,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-003",
+      "description": "Refactor the context builder to support token budget limits",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 1,
+      "expected_files_total": 1,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-004",
+      "description": "Change how memory refresh planning decides which artifacts to regenerate",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 1,
+      "expected_files_total": 1,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-005",
+      "description": "Add a new MCP tool to expose freshness metadata from .agent-memory",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 1,
+      "expected_files_total": 1,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-006",
+      "description": "Update the graph bridge to expose co-neighbor relationships for classification",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 2,
+      "expected_files_total": 2,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-007",
+      "description": "Fix a bug in the Tree-sitter parser for Python files",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 0,
+      "expected_files_total": 1,
+      "coverage_pct": 0.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": false
+      }
+    },
+    {
+      "task_id": "task-008",
+      "description": "Generate a D3.js visualization of the dependency graph",
+      "files_returned": 13,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 57175,
+      "expected_files_hit": 0,
+      "expected_files_total": 1,
+      "coverage_pct": 0.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": false
+      }
+    }
+  ],
+  "refresh": {
+    "changed_files": 8,
+    "directly_impacted": 0,
+    "graph_expanded": 0,
+    "total_plan_size": 0,
+    "reason": "incremental: 8 changed file(s), 0 artifact(s) directly impacted"
+  },
+  "timing": {
+    "init_seconds": 0.0,
+    "context_pack_seconds": 0.001
+  },
+  "thresholds": {
+    "feature_count": {
+      "op": ">=",
+      "value": 2
+    },
+    "avg_feature_confidence": {
+      "op": ">=",
+      "value": 0.5
+    },
+    "avg_module_confidence": {
+      "op": ">=",
+      "value": 0.5
+    },
+    "files_returned": {
+      "op": "<=",
+      "value": 20
+    },
+    "tokens_estimated": {
+      "op": "<=",
+      "value": 40000
+    },
+    "coverage_pct": {
+      "op": ">=",
+      "value": 50.0
+    }
+  }
+}

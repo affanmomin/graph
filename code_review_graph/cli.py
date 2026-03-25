@@ -73,8 +73,8 @@ def _print_banner() -> None:
 {c}  ●──●──●{r}
 {c}  │╲ │ ╱│{r}       {b}code-review-graph{r}  {d}v{version}{r}
 {c}  ●──{y}◆{c}──●{r}
-{c}  │╱ │ ╲│{r}       {d}Structural knowledge graph for{r}
-{c}  ●──●──●{r}       {d}smarter code reviews{r}
+{c}  │╱ │ ╲│{r}       {d}Graph-powered repo memory for Claude Code.{r}
+{c}  ●──●──●{r}       {d}Stop re-explaining your codebase every session.{r}
 
   {b}Graph commands:{r}
     {g}install{r}     Set up Claude Code integration

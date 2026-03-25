@@ -211,6 +211,16 @@ def memory_init_command(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
     repo_root = _resolve_repo_root(args)
+
+    if not repo_root.exists():
+        print(f"error: path does not exist: {repo_root}", flush=True)
+        import sys
+        sys.exit(1)
+    if not repo_root.is_dir():
+        print(f"error: path is not a directory: {repo_root}", flush=True)
+        import sys
+        sys.exit(1)
+
     print(f"repo-memory: init")
     print(f"  scanning {repo_root} ...")
 

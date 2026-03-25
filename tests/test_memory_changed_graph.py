@@ -621,7 +621,7 @@ class TestRealisticChangedExamples:
             output = changed_match(match, tmp_path, repo_root=tmp_path)
 
         assert "Module: src.billing" in output
-        assert "No refresh data found" in output
+        assert "No refresh data yet" in output
         assert "Graph impact" in output
         assert "src/api/billing_routes.py" in output
         assert "src/workers/invoice_sender.py" in output

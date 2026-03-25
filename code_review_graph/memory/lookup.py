@@ -309,13 +309,22 @@ def changed_match(
 
     if freshness is None:
         lines.append(
-            "  No refresh data found. Run `memory refresh` to track changes."
+            "  No refresh data yet. Run `memory refresh` to track changes."
         )
+        # Show the area's file list so there's something actionable even without freshness
+        obj_no_fresh = match.obj
+        area_file_list: list[str] = getattr(obj_no_fresh, "files", []) if obj_no_fresh else []
+        if area_file_list:
+            lines.append("")
+            lines.append(f"  Files in this area ({len(area_file_list)}):")
+            for fp in area_file_list[:10]:
+                lines.append(f"    {fp}")
+            if len(area_file_list) > 10:
+                lines.append(f"    … and {len(area_file_list) - 10} more")
         # Still surface recent.md if it was written by some other means
         _append_recent_md_lines(lines, agent_memory_root, match)
         # Even without freshness, graph can show structural impact from area files
-        obj_no_fresh = match.obj
-        fallback_seeds = getattr(obj_no_fresh, "files", [])[:10] if obj_no_fresh else []
+        fallback_seeds = area_file_list[:10]
         graph_sec = _graph_change_section(fallback_seeds, repo_root, agent_memory_root)
         if graph_sec:
             lines.append("")

@@ -352,5 +352,5 @@ MIT. See [LICENSE](LICENSE).
 
 <p align="center">
 <br>
-<code>pip install code-review-graph && code-review-graph memory init</code>
+<code>pip install code-review-graph && code-review-graph build && code-review-graph memory init</code>
 </p>
