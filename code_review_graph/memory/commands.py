@@ -394,7 +394,7 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     # Load human overrides if .agent-memory/ exists
     overrides = load_overrides(_agent_memory_root(repo_root))
 
-    pack = build_context_pack(task, features, modules, overrides=overrides)
+    pack = build_context_pack(task, features, modules, overrides=overrides, repo_root=repo_root)
 
     if as_json:
         _print_pack_json(pack)

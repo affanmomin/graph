@@ -1030,7 +1030,7 @@ def memory_prepare_context(task: str, repo_root: str | None = None) -> dict[str,
     scan = scan_repo(root)
     features = classify_features(root, scan)
     modules = classify_modules(root, scan)
-    pack = build_context_pack(task, features, modules)
+    pack = build_context_pack(task, features, modules, repo_root=root)
 
     return {
         "status": "ok",
