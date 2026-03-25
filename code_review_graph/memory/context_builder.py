@@ -45,6 +45,7 @@ Threshold and caps:
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -53,6 +54,8 @@ from .models import FeatureMemory, ModuleMemory, TaskContextPack
 
 if TYPE_CHECKING:
     from .overrides import Overrides
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -75,6 +78,12 @@ _MAX_MODULES = 5
 _MAX_FILES = 20
 _MIN_SCORE = 0.05  # minimum relevance score to include anything
 
+# Graph enrichment limits — how many extra entries the graph bridge may add.
+# Final file count is still capped by _MAX_FILES at pack assembly time.
+_GRAPH_SEED_FILES = 10   # top N heuristic files used as graph query seeds
+_GRAPH_MAX_EXTRA_FILES = 5   # max new files added by graph enrichment
+_GRAPH_MAX_EXTRA_TESTS = 5   # max new tests added by graph enrichment
+
 # Scoring weights — must sum to _W_TOTAL
 _W_NAME = 2.0      # strongest signal: task mentions the feature/module by name
 _W_FILE_STEM = 1.0  # task mentions a file's stem (e.g. "login" → login.py)
@@ -92,6 +101,7 @@ def build_context_pack(
     features: list[FeatureMemory],
     modules: list[ModuleMemory],
     overrides: Overrides | None = None,
+    repo_root: Path | None = None,
 ) -> TaskContextPack:
     """Build a focused context pack for *task*.
 
@@ -102,6 +112,10 @@ def build_context_pack(
         overrides: Optional loaded :class:`~overrides.Overrides`.  When
                    provided, ``always_include`` files are prepended, ``never_edit``
                    paths become warnings, and matching ``task_hints`` are injected.
+        repo_root: Optional repo root path.  When provided and a graph.db exists,
+                   the heuristic file list is enriched with structurally related
+                   files and tests discovered via the graph engine.  Falls back
+                   to heuristic-only behaviour when omitted or graph is absent.
 
     Returns:
         A populated :class:`~models.TaskContextPack`.  Never raises —
@@ -135,6 +149,10 @@ def build_context_pack(
     # Collect files and tests preserving relevance order (features first)
     files_ordered, tests_ordered = _collect_files_and_tests(top_features, top_modules)
 
+    # Graph enrichment — add structurally related files/tests when graph is available.
+    # Modifies files_ordered and tests_ordered in-place; never raises.
+    graph_enriched = _enrich_with_graph(files_ordered, tests_ordered, repo_root)
+
     warnings = _build_warnings(
         relevant_features=top_features,
         relevant_modules=top_modules,
@@ -148,6 +166,7 @@ def build_context_pack(
         files=files_ordered,
         warnings=warnings,
         fallback=fallback,
+        graph_enriched=graph_enriched,
     )
 
     pack = TaskContextPack(
@@ -224,6 +243,56 @@ def _score(
     raw = (_W_NAME * name_overlap + _W_FILE_STEM * stem_overlap + _W_PATH_DIR * dir_overlap) / _W_TOTAL
     # Confidence soft-weighting: high-confidence classifications rank higher
     return round(raw * (0.4 + 0.6 * confidence), 4)
+
+
+# ---------------------------------------------------------------------------
+# Graph enrichment
+# ---------------------------------------------------------------------------
+
+
+def _enrich_with_graph(
+    files: list[str],
+    tests: list[str],
+    repo_root: Path | None,
+) -> bool:
+    """Enrich *files* and *tests* in-place with graph-backed relationships.
+
+    Uses the top ``_GRAPH_SEED_FILES`` heuristic files as seeds and queries the
+    graph bridge for structurally related source files and test files.  Only
+    entries not already present are appended.
+
+    Returns ``True`` if any new entries were added; ``False`` otherwise.
+    Never raises — all graph errors are caught and logged at DEBUG level.
+    """
+    if repo_root is None:
+        return False
+    try:
+        from .graph_bridge import get_related_files, get_related_tests, graph_available
+        if not graph_available(repo_root):
+            return False
+
+        seed_files = files[:_GRAPH_SEED_FILES]
+        existing_files: set[str] = set(files)
+        existing_tests: set[str] = set(tests)
+
+        graph_files = get_related_files(seed_files, repo_root, max_files=_GRAPH_MAX_EXTRA_FILES)
+        graph_tests = get_related_tests(seed_files, repo_root, max_tests=_GRAPH_MAX_EXTRA_TESTS)
+
+        enriched = False
+        for gf in graph_files:
+            if gf not in existing_files:
+                files.append(gf)
+                existing_files.add(gf)
+                enriched = True
+        for gt in graph_tests:
+            if gt not in existing_tests:
+                tests.append(gt)
+                existing_tests.add(gt)
+                enriched = True
+        return enriched
+    except Exception as exc:
+        logger.debug("_enrich_with_graph: graph enrichment failed: %s", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +374,7 @@ def _build_summary(
     files: list[str],
     warnings: list[str],
     fallback: bool,
+    graph_enriched: bool = False,
 ) -> str:
     """Produce a concise, agent-readable summary paragraph for the context pack."""
     lines: list[str] = []
@@ -326,6 +396,10 @@ def _build_summary(
     if files:
         first = files[:3]
         lines.append(f"Inspect first: {', '.join(first)}")
+
+    # Graph enrichment note
+    if graph_enriched:
+        lines.append("Context enriched with graph-backed structural relationships.")
 
     # First warning
     if warnings:
