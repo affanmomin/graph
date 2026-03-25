@@ -12,6 +12,7 @@ get_related_files(seed_files, repo_root, max_files=10) -> list[str]
 get_related_tests(seed_files, repo_root, max_tests=5) -> list[str]
 get_structural_neighbors(seed_files, repo_root, max_neighbors=5) -> list[str]
 get_explain_context(seed_files, repo_root, ...) -> ExplainGraphContext | None
+get_change_impact(changed_files, repo_root, ...) -> ChangeImpactContext | None
 
 Graph capabilities reused
 -------------------------
@@ -359,4 +360,90 @@ def get_explain_context(
             )
     except Exception as exc:
         logger.debug("get_explain_context: graph query failed: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Change impact context
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ChangeImpactContext:
+    """Graph-backed structural impact analysis for ``memory changed``.
+
+    Attributes:
+        impacted_files:  Non-test source files structurally reachable from the
+                         changed files within one BFS hop.  Excludes the changed
+                         files themselves.
+        impacted_tests:  Test files reachable from the changed files — candidates
+                         for re-running after the changes.
+        total_impacted:  Total count of impacted graph nodes (before capping),
+                         useful as a coupling-pressure indicator.
+        truncated:       True when the impact radius hit the node cap and further
+                         neighbours were skipped.
+    """
+
+    impacted_files: list[str] = field(default_factory=list)
+    impacted_tests: list[str] = field(default_factory=list)
+    total_impacted: int = 0
+    truncated: bool = False
+
+
+def get_change_impact(
+    changed_files: list[str],
+    repo_root: str | Path,
+    max_files: int = 6,
+    max_tests: int = 4,
+) -> ChangeImpactContext | None:
+    """Return graph-backed structural impact for *changed_files*.
+
+    Uses ``GraphStore.get_impact_radius`` at depth 1 to find files and tests
+    that are structurally reachable from the changed files — the blast radius
+    of the change.
+
+    Separates results into non-test source files (*impacted_files*) and test
+    files (*impacted_tests*).  Results are sorted for determinism and capped
+    at *max_files* / *max_tests*.
+
+    Returns ``None`` when graph data is unavailable or any error occurs.
+    """
+    if not changed_files:
+        return None
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return None
+
+    seed_set = set(changed_files)
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return None
+
+            radius = gs.get_impact_radius(list(changed_files), max_depth=1, max_nodes=300)
+
+            impacted_files = sorted(
+                f for f in radius["impacted_files"]
+                if f not in seed_set and not _is_test_file(f)
+            )[:max_files]
+
+            impacted_tests = sorted(
+                f for f in radius["impacted_files"]
+                if f not in seed_set and _is_test_file(f)
+            )
+            # Also surface test nodes flagged via is_test on impacted_nodes
+            for node in radius["impacted_nodes"]:
+                if node.is_test and node.file_path not in seed_set:
+                    impacted_tests.append(node.file_path)
+            impacted_tests = sorted(set(impacted_tests))[:max_tests]
+
+            return ChangeImpactContext(
+                impacted_files=impacted_files,
+                impacted_tests=impacted_tests,
+                total_impacted=radius["total_impacted"],
+                truncated=radius["truncated"],
+            )
+    except Exception as exc:
+        logger.debug("get_change_impact: graph query failed: %s", exc)
         return None
