@@ -14,6 +14,8 @@ get_structural_neighbors(seed_files, repo_root, max_neighbors=5) -> list[str]
 get_explain_context(seed_files, repo_root, ...) -> ExplainGraphContext | None
 get_change_impact(changed_files, repo_root, ...) -> ChangeImpactContext | None
 get_graph_expanded_files(changed_files, repo_root, max_expansion=20) -> list[str]
+ClassifierGraphSignals (dataclass)
+get_all_classifier_signals(groups, repo_root) -> dict[str, ClassifierGraphSignals]
 
 Graph capabilities reused
 -------------------------
@@ -489,3 +491,158 @@ def get_graph_expanded_files(
     except Exception as exc:
         logger.debug("get_graph_expanded_files: graph query failed: %s", exc)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Classifier signals
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ClassifierGraphSignals:
+    """Graph signals for a single feature/module classifier group.
+
+    Used by the classifier to refine confidence scores, merge graph-found test
+    associations, and populate module dependency edges.  All fields default to
+    empty/zero so callers can use the dataclass even when the graph has no
+    data for a particular group.
+
+    Attributes:
+        internal_edge_count:      Number of unique directed file-pairs connected
+                                  by IMPORTS_FROM or CALLS edges where both the
+                                  source and target file belong to this group.
+                                  Higher → files are genuinely coupled → raises
+                                  confidence in the grouping.
+        external_dep_files:       Source files OUTSIDE this group that files in
+                                  this group import from (fan-out dependencies).
+                                  Used to populate ``ModuleMemory.dependencies``.
+        external_dependent_files: Source files OUTSIDE this group that import
+                                  FROM files in this group (fan-in dependents).
+                                  Used to populate ``ModuleMemory.dependents``.
+        test_files:               Test files structurally linked to this group's
+                                  source files via TESTED_BY edges.  More precise
+                                  than stem-name heuristic matching.
+    """
+
+    internal_edge_count: int = 0
+    external_dep_files: list[str] = field(default_factory=list)
+    external_dependent_files: list[str] = field(default_factory=list)
+    test_files: list[str] = field(default_factory=list)
+
+    def confidence_delta(self, group_size: int) -> float:
+        """Return a confidence adjustment in [-0.05, +0.08] based on connectivity.
+
+        Well-connected groups receive a boost; groups with zero internal edges
+        get a small penalty (keyword match with no structural confirmation).
+        Single-file groups are not adjusted — internal edges are impossible.
+        """
+        if group_size <= 1:
+            return 0.0
+        if self.internal_edge_count >= group_size:
+            return 0.08   # every file has ≥1 internal connection → confirm grouping
+        if self.internal_edge_count > 0:
+            return 0.04   # partial connectivity → weak structural confirmation
+        return -0.05       # no internal edges → keyword match only, lower confidence
+
+
+def get_all_classifier_signals(
+    groups: dict[str, list[str]],
+    repo_root: str | Path,
+) -> dict[str, ClassifierGraphSignals]:
+    """Compute graph signals for all classifier groups in a single DB pass.
+
+    Opens ``graph.db`` once and processes every group, returning a mapping of
+    group name → :class:`ClassifierGraphSignals`.  Returns an empty dict when
+    the graph is unavailable or any error occurs — the classifier falls back to
+    filesystem heuristics automatically.
+
+    Graph signals computed per group:
+
+    * **Internal edges** — IMPORTS_FROM or CALLS between files within the group.
+      Counted as unique directed file-pair (source, target) to avoid per-node
+      double-counting.
+    * **External dep files** — files outside the group that the group imports
+      from (via outgoing IMPORTS_FROM edges only, for stability).
+    * **External dependent files** — files outside the group that import from
+      the group (incoming IMPORTS_FROM edges; source identified via
+      ``edge.file_path``).
+    * **Test files** — test files linked to group source files via incoming
+      TESTED_BY edges (``edge.file_path`` is the test file).
+
+    Args:
+        groups:    Mapping of group name → list of repo-relative file paths.
+        repo_root: Repository root containing ``.code-review-graph/graph.db``.
+
+    Returns:
+        Dict mapping group name → :class:`ClassifierGraphSignals`.  Missing
+        keys indicate no graph data was found for that group.
+    """
+    if not groups:
+        return {}
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return {}
+
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return {}
+
+            # Build reverse-lookup: file_path → group name (for target resolution)
+            file_to_group: dict[str, str] = {}
+            for name, files in groups.items():
+                for fp in files:
+                    file_to_group[fp] = name
+
+            # Initialise an empty signals object for every group
+            signals: dict[str, ClassifierGraphSignals] = {
+                name: ClassifierGraphSignals() for name in groups
+            }
+
+            for group_name, group_files in groups.items():
+                group_set = set(group_files)
+                sig = signals[group_name]
+
+                # Track unique file-pair edges for internal_edge_count
+                internal_pairs: set[tuple[str, str]] = set()
+                ext_deps: set[str] = set()
+                ext_dependents: set[str] = set()
+                test_files: set[str] = set()
+
+                for fp in group_files:
+                    for node in gs.get_nodes_by_file(fp):
+                        qn = node.qualified_name
+
+                        # --- Outgoing edges ---
+                        for edge in gs.get_edges_by_source(qn):
+                            if edge.kind in ("IMPORTS_FROM", "CALLS"):
+                                target_fp = _file_from_qualified(edge.target_qualified)
+                                if target_fp is None:
+                                    continue
+                                if target_fp in group_set:
+                                    # Internal edge: both ends inside this group
+                                    internal_pairs.add((fp, target_fp))
+                                elif edge.kind == "IMPORTS_FROM" and not _is_test_file(target_fp):
+                                    # External dependency (imports only, not calls)
+                                    ext_deps.add(target_fp)
+
+                        # --- Incoming edges ---
+                        for edge in gs.get_edges_by_target(qn):
+                            if edge.kind == "TESTED_BY":
+                                # edge.file_path = file containing the test node
+                                test_files.add(edge.file_path)
+                            elif edge.kind == "IMPORTS_FROM":
+                                src_fp = edge.file_path
+                                if src_fp not in group_set and not _is_test_file(src_fp):
+                                    ext_dependents.add(src_fp)
+
+                sig.internal_edge_count = len(internal_pairs)
+                sig.external_dep_files = sorted(ext_deps)
+                sig.external_dependent_files = sorted(ext_dependents)
+                sig.test_files = sorted(test_files)
+
+            return signals
+    except Exception as exc:
+        logger.debug("get_all_classifier_signals: failed: %s", exc)
+        return {}
