@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "description": "Sample tasks for context-pack evaluation. Each task has a description, expected signals, and optional expected files.",
+  "tasks": [
+    {
+      "id": "task-001",
+      "description": "Add a new CLI command to the memory subsystem",
+      "expected_features": ["memory", "cli"],
+      "expected_modules": ["code_review_graph.memory"],
+      "expected_files_contain": ["commands.py", "cli.py"],
+      "notes": "Should surface commands.py, cli.py, and related memory module files"
+    },
+    {
+      "id": "task-002",
+      "description": "Fix a bug in the Tree-sitter parser for Python files",
+      "expected_features": ["parser", "parsing"],
+      "expected_modules": ["code_review_graph"],
+      "expected_files_contain": ["parser.py"],
+      "notes": "Should surface parser.py strongly; test_parser.py as a related test"
+    },
+    {
+      "id": "task-003",
+      "description": "Update the graph store to add a new edge type for inheritance",
+      "expected_features": ["graph"],
+      "expected_modules": ["code_review_graph"],
+      "expected_files_contain": ["graph.py"],
+      "notes": "Should surface graph.py; tests/test_graph.py as related test"
+    },
+    {
+      "id": "task-004",
+      "description": "Add a new MCP tool to expose freshness metadata",
+      "expected_features": ["mcp", "memory", "metadata"],
+      "expected_modules": ["code_review_graph.memory"],
+      "expected_files_contain": ["tools.py", "metadata.py"],
+      "notes": "Should surface tools.py and memory/metadata.py"
+    },
+    {
+      "id": "task-005",
+      "description": "Improve confidence scoring in the memory classifier",
+      "expected_features": ["memory", "classifier"],
+      "expected_modules": ["code_review_graph.memory"],
+      "expected_files_contain": ["classifier.py"],
+      "notes": "Should surface classifier.py and graph_bridge.py"
+    },
+    {
+      "id": "task-006",
+      "description": "Write integration tests for the incremental update pipeline",
+      "expected_features": ["incremental", "testing"],
+      "expected_modules": ["code_review_graph"],
+      "expected_files_contain": ["incremental.py", "test_incremental.py"],
+      "notes": "Should surface incremental.py; existing test_incremental.py as the test anchor"
+    },
+    {
+      "id": "task-007",
+      "description": "Generate a D3.js visualization of the dependency graph",
+      "expected_features": ["visualization"],
+      "expected_modules": ["code_review_graph"],
+      "expected_files_contain": ["visualization.py"],
+      "notes": "Should surface visualization.py; test_visualization.py as test"
+    },
+    {
+      "id": "task-008",
+      "description": "Refactor the context builder to support token budget limits",
+      "expected_features": ["memory", "context"],
+      "expected_modules": ["code_review_graph.memory"],
+      "expected_files_contain": ["context_builder.py"],
+      "notes": "Should surface context_builder.py; lookup.py as a related consumer"
+    }
+  ]
+}
