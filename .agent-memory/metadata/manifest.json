@@ -58,8 +58,8 @@
       "relative_path": ".agent-memory/rules/safe-boundaries.md"
     }
   ],
-  "generated_at": "2026-03-25T11:29:56.882437+00:00",
-  "repo_root": "/Users/apple/Desktop/graph",
+  "generated_at": "2026-03-25T16:39:07.486927+00:00",
+  "repo_root": "C:\\Users\\Lenovo\\graph",
   "scan_confidence": 1.0,
   "source_roots": [
     "benchmarks",
