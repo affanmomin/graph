@@ -426,6 +426,88 @@ class TestChangedMatchGraph:
 
         assert "src/api/routes.py" in output
 
+    def test_path_to_feature_shows_feature_label(self, tmp_path: Path):
+        """A path match whose underlying obj is FeatureMemory must show 'Feature:'."""
+        from code_review_graph.memory.lookup import TargetMatch
+        feature = _auth_feature()
+        match = TargetMatch(
+            kind="path",
+            name="Authentication (via path: src/auth/token.py)",
+            slug=feature.slug(),
+            obj=feature,
+            artifact_path=None,
+            score=0.9,
+        )
+        _write_freshness(tmp_path, _freshness([]))
+        output = changed_match(match, tmp_path, repo_root=None)
+        assert output.startswith("Feature:")
+
+    def test_path_to_module_shows_module_label(self, tmp_path: Path):
+        """A path match whose underlying obj is ModuleMemory must show 'Module:'."""
+        from code_review_graph.memory.lookup import TargetMatch
+        module = _billing_module()
+        match = TargetMatch(
+            kind="path",
+            name="src.billing (via path: src/billing/invoice.py)",
+            slug=module.slug(),
+            obj=module,
+            artifact_path=None,
+            score=0.9,
+        )
+        _write_freshness(tmp_path, _freshness([]))
+        output = changed_match(match, tmp_path, repo_root=None)
+        assert output.startswith("Module:")
+
+    def test_graph_section_per_line_bullets(self, tmp_path: Path):
+        """Multiple impacted files must each appear on their own bullet line."""
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        store = _make_store(
+            impact_files=["src/api/routes.py", "src/workers/job.py"],
+            total_impacted=4,
+        )
+        feature = _auth_feature()
+        match = _make_match("feature", feature)
+        _write_freshness(tmp_path, _freshness(["src/auth/token.py"]))
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            output = changed_match(match, tmp_path, repo_root=tmp_path)
+
+        lines = output.splitlines()
+        # Each file must be on its own line, not comma-joined
+        file_lines = [l for l in lines if "src/api/routes.py" in l or "src/workers/job.py" in l]
+        assert len(file_lines) >= 2, "Each impacted file should appear on its own line"
+        combined = [l for l in lines if "src/api/routes.py" in l and "src/workers/job.py" in l]
+        assert combined == [], "Impacted files must not be comma-joined on one line"
+
+    def test_tests_to_rerun_per_line_bullets(self, tmp_path: Path):
+        """Multiple impacted test files must each appear on their own bullet line."""
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        store = _make_store(
+            impact_files=["tests/integration/test_auth_flow.py",
+                          "tests/e2e/test_login.py"],
+            total_impacted=3,
+        )
+        feature = _auth_feature()
+        match = _make_match("feature", feature)
+        _write_freshness(tmp_path, _freshness(["src/auth/token.py"]))
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            output = changed_match(match, tmp_path, repo_root=tmp_path)
+
+        lines = output.splitlines()
+        test_lines = [l for l in lines
+                      if "test_auth_flow.py" in l or "test_login.py" in l]
+        assert len(test_lines) >= 2, "Each test file should appear on its own bullet line"
+        combined = [l for l in lines
+                    if "test_auth_flow.py" in l and "test_login.py" in l]
+        assert combined == [], "Test files must not be comma-joined on one line"
+
     def test_graph_exception_does_not_break_output(self, tmp_path: Path):
         """If graph query raises, the rest of changed_match still renders."""
         db = tmp_path / ".code-review-graph" / "graph.db"
