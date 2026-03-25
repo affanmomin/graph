@@ -1068,16 +1068,41 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
     from .memory.scanner import scan_repo
     from .memory.classifier import classify_features, classify_modules
     from .memory.generator import generate_feature_doc, generate_module_doc
+    from .memory.graph_bridge import get_explain_context
 
     root = _get_memory_root(repo_root)
     slug = name.lower().replace(" ", "-").replace("/", "-").replace(".", "-")
     agent_memory = root / ".agent-memory"
+
+    def _graph_fields(seed_files: list[str]) -> dict:
+        """Return graph-enriched fields to merge into the tool response."""
+        ctx = get_explain_context(seed_files, root)
+        if ctx is None:
+            return {}
+        return {
+            "graph_related_files": ctx.related_files,
+            "graph_related_tests": ctx.related_tests,
+            "graph_structural_neighbors": ctx.structural_neighbors,
+            "graph_fan_in_count": ctx.fan_in_count,
+            "graph_fan_in_sample": ctx.fan_in_sample,
+            "graph_fan_out_sample": ctx.fan_out_sample,
+        }
 
     # Try persisted artifacts first
     for subdir, kind in (("features", "feature"), ("modules", "module")):
         candidate = agent_memory / subdir / f"{slug}.md"
         if candidate.exists():
             content = candidate.read_text(encoding="utf-8", errors="replace")
+            # Extract file list from the artifact's feature/module if we can find it
+            # via live classification so graph enrichment still works.
+            scan = scan_repo(root)
+            features = classify_features(root, scan)
+            modules = classify_modules(root, scan)
+            seed: list[str] = []
+            for obj in (features if kind == "feature" else modules):
+                if obj.slug() == slug or obj.name.lower() == name.lower():
+                    seed = obj.files
+                    break
             return {
                 "status": "ok",
                 "kind": kind,
@@ -1086,6 +1111,7 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
                 "artifact_path": str(candidate.relative_to(root)),
                 "summary": f"{kind.capitalize()} '{name}' loaded from .agent-memory/{subdir}/{slug}.md",
                 "content": content,
+                **_graph_fields(seed),
             }
 
     # Fallback: classify on-the-fly and generate the doc
@@ -1110,6 +1136,7 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
                 "files": feature.files,
                 "tests": feature.tests,
                 "confidence": feature.confidence,
+                **_graph_fields(feature.files),
             }
 
     for module in modules:
@@ -1128,6 +1155,7 @@ def memory_explain_area(name: str, repo_root: str | None = None) -> dict[str, An
                 "files": module.files,
                 "tests": module.tests,
                 "confidence": module.confidence,
+                **_graph_fields(module.files),
             }
 
     return {
