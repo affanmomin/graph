@@ -1,12 +1,29 @@
 # Features
 
 ## v1.8.4 (Current)
+
+### Repo memory (Layer B) — new in this release
+- **`memory init`**: Scan repo → classify features/modules → write `.agent-memory/` artifacts (committed to Git). Shared pipeline called by both CLI and MCP tool.
+- **`memory refresh`**: Incremental artifact regeneration triggered by git-diff. Runs automatically after `code-review-graph update`. Graph BFS expands impact to structurally related areas.
+- **`memory prepare-context`**: Task-aware context pack assembly. Graph BFS pulls in structurally related files beyond keyword matches. Returns features, modules, files, tests, and task summary.
+- **`memory explain`**: Reads stored `.agent-memory/` artifacts for a feature, module, or path. Graph enrichment adds import fan-in/fan-out and structural neighbors.
+- **`memory changed`**: Graph-expanded impact analysis for a changed area. Surfaces BFS callers, dependents, and tests. Also reads `changes/recent.md` for recent commit history.
+- **`memory annotate`**: Scaffold and open `overrides/global.yaml` for human corrections. Never auto-overwrites existing content.
+- **`memory_*` MCP tools**: All six memory commands exposed as MCP tools with identical behavior to CLI.
+- **`graph_bridge.py`**: Thin adapter isolating all graph imports from the memory subsystem. All functions degrade gracefully when `graph.db` is absent.
+- **CLAUDE.md generation**: `memory init` generates `.agent-memory/CLAUDE.md` — compact session bootstrap for Claude Code. Prints action-required notice if `@.agent-memory/CLAUDE.md` is absent from root CLAUDE.md.
+- **Graph-missing notice**: `memory init` detects absent `graph.db` and prints actionable guidance to run `code-review-graph build`.
+- **`.gitignore` validation**: `memory init` warns if `.agent-memory/` appears in `.gitignore` (memory would not be committed), and suggests adding `.code-review-graph/` if missing.
+- **Human overrides**: `overrides/global.yaml` corrections applied to `rules/conventions.md`, `rules/safe-boundaries.md`, and context pack assembly.
+- **Metadata**: `manifest.json`, `confidence.json`, `sources.json`, `freshness.json` written alongside artifacts.
+
+### Graph engine improvements
 - **Multi-word AND search**: `search_nodes` now requires all words to match (case-insensitive), producing more precise results.
 - **Call target resolution**: Bare call targets are resolved to qualified names using same-file definitions, improving `callers_of`/`callees_of` accuracy.
 - **Impact radius pagination**: `get_impact_radius` returns `truncated` flag and `total_impacted` count; `max_results` parameter controls output size.
 - **`find_large_functions_tool`**: New MCP tool to find functions, classes, or files exceeding a line-count threshold.
 - **14 languages**: Added Vue SFC and Solidity support.
-- **Documentation overhaul**: All docs updated with accurate language/tool counts, version references, and VS Code extension parity.
+- **Documentation overhaul**: README, USAGE, COMMANDS, and LLM-OPTIMIZED-REFERENCE aligned to memory-first product story.
 
 ## v1.8.3
 - **Parser recursion guard**: `_MAX_AST_DEPTH = 180` prevents stack overflow on deeply nested ASTs.

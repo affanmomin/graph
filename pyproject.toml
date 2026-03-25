@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "code-review-graph"
 version = "1.8.4"
-description = "Graph-powered repo memory for Claude Code — persistent, Git-committed context so you never re-explain your codebase"
+description = "Your codebase, remembered. Graph-powered repo memory for Claude Code — committed to Git, shared with your team, loaded every session."
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
 requires-python = ">=3.10"
