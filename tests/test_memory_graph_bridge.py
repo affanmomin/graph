@@ -21,6 +21,7 @@ from code_review_graph.memory.graph_bridge import (
     get_related_files,
     get_related_tests,
     get_structural_neighbors,
+    get_task_symbol_files,
     graph_available,
 )
 from code_review_graph.memory.models import FeatureMemory, ModuleMemory
@@ -788,3 +789,260 @@ class TestRealisticTaskExamples:
         assert pack.relevant_features[0] != "Authentication"
         # Pack is bounded
         assert len(pack.relevant_files) <= 20
+
+
+# ---------------------------------------------------------------------------
+# get_task_symbol_files
+# ---------------------------------------------------------------------------
+
+
+class TestGetTaskSymbolFiles:
+    """Tests for symbol-level task routing via GraphStore.search_nodes()."""
+
+    def test_no_graph_returns_empty(self, tmp_path: Path):
+        """Without graph.db, returns empty list without raising."""
+        result = get_task_symbol_files("verify_token auth", tmp_path)
+        assert result == []
+
+    def test_blank_task_returns_empty(self, tmp_path: Path):
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        store = _make_store(stats_nodes=5)
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("   ", tmp_path)
+        assert result == []
+        store.search_nodes.assert_not_called()
+
+    def test_finds_file_for_matching_symbol(self, tmp_path: Path):
+        """When search_nodes returns a matching node, its file should appear."""
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        matching_node = _make_node("src/auth/token.py::verify_token", "src/auth/token.py")
+        store = _make_store(stats_nodes=10)
+        store.search_nodes.return_value = [matching_node]
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("verify_token", tmp_path)
+
+        assert "src/auth/token.py" in result
+        store.search_nodes.assert_called_once_with("verify_token", limit=20)
+
+    def test_test_files_excluded(self, tmp_path: Path):
+        """Symbol files that are test files must not appear in results."""
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        test_node = _make_node(
+            "tests/test_token.py::test_verify_token",
+            "tests/test_token.py",
+            is_test=True,
+        )
+        store = _make_store(stats_nodes=5)
+        store.search_nodes.return_value = [test_node]
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("verify_token", tmp_path)
+
+        assert "tests/test_token.py" not in result
+
+    def test_deduplicates_multiple_nodes_same_file(self, tmp_path: Path):
+        """Multiple nodes in the same file should yield only one file entry."""
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        node_a = _make_node("src/auth.py::verify_token", "src/auth.py")
+        node_b = _make_node("src/auth.py::refresh_token", "src/auth.py")
+        store = _make_store(stats_nodes=5)
+        store.search_nodes.return_value = [node_a, node_b]
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("token auth", tmp_path)
+
+        assert result.count("src/auth.py") == 1
+
+    def test_max_files_cap(self, tmp_path: Path):
+        """Result is capped at max_files."""
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        many_nodes = [
+            _make_node(f"src/module_{i}.py::func_{i}", f"src/module_{i}.py")
+            for i in range(15)
+        ]
+        store = _make_store(stats_nodes=5)
+        store.search_nodes.return_value = many_nodes
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("func", tmp_path, max_files=3)
+
+        assert len(result) <= 3
+
+    def test_result_is_sorted(self, tmp_path: Path):
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        nodes = [
+            _make_node("src/z_module.py::func", "src/z_module.py"),
+            _make_node("src/a_module.py::func", "src/a_module.py"),
+            _make_node("src/m_module.py::func", "src/m_module.py"),
+        ]
+        store = _make_store(stats_nodes=5)
+        store.search_nodes.return_value = nodes
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("func", tmp_path)
+
+        assert result == sorted(result)
+
+    def test_graph_exception_returns_empty(self, tmp_path: Path):
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        store = _make_store(stats_nodes=5)
+        store.search_nodes.side_effect = RuntimeError("db locked")
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("verify_token", tmp_path)
+
+        assert result == []
+
+    def test_empty_graph_returns_empty(self, tmp_path: Path):
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        store = _make_store(stats_nodes=0)
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_task_symbol_files("verify_token", tmp_path)
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Integration: _enrich_with_graph — neighbors and symbol routing
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichWithGraphNeighborsAndSymbols:
+    """Test the new enrichment strategies added in Phase 1."""
+
+    def _auth_feature(self) -> FeatureMemory:
+        return FeatureMemory(
+            name="Authentication",
+            files=["src/auth/verify.py"],
+            tests=[],
+            confidence=0.9,
+        )
+
+    def test_structural_neighbors_added_to_pack(self, tmp_path: Path):
+        """Files connected via IMPORTS_FROM should appear in the context pack."""
+        from code_review_graph.memory.context_builder import build_context_pack
+
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        node = _make_node("src/auth/verify.py::verify_token", "src/auth/verify.py")
+        # api/routes.py imports from src/auth/verify.py — it's a structural neighbor
+        incoming_edge = _make_edge(
+            kind="IMPORTS_FROM",
+            source_qualified="src/api/routes.py::login_route",
+            target_qualified="src/auth/verify.py::verify_token",
+            file_path="src/api/routes.py",
+        )
+        store = _make_store(
+            stats_nodes=10,
+            impact_files=[],          # no BFS results — only neighbor edges
+            nodes_by_file=[node],
+            edges_by_source=[],
+            edges_by_target=[incoming_edge],
+        )
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            pack = build_context_pack(
+                "fix auth token verification",
+                [self._auth_feature()],
+                [],
+                repo_root=tmp_path,
+            )
+
+        assert "src/api/routes.py" in pack.relevant_files
+
+    def test_symbol_routing_adds_file_not_in_heuristic_list(self, tmp_path: Path):
+        """When task names a symbol, its defining file should be added even if not
+        in the heuristic feature/module file lists."""
+        from code_review_graph.memory.context_builder import build_context_pack
+
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        # search_nodes returns a node whose file is NOT in the heuristic list
+        jwt_node = _make_node("src/utils/jwt_decoder.py::decode_jwt", "src/utils/jwt_decoder.py")
+        store = _make_store(stats_nodes=10, impact_files=[])
+        store.search_nodes.return_value = [jwt_node]
+
+        feature = FeatureMemory(
+            name="Authentication",
+            files=["src/auth/verify.py"],
+            tests=[],
+            confidence=0.9,
+        )
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            pack = build_context_pack(
+                "fix the decode_jwt function in auth",
+                [feature],
+                [],
+                repo_root=tmp_path,
+            )
+
+        assert "src/utils/jwt_decoder.py" in pack.relevant_files
+
+    def test_no_duplicates_from_combined_strategies(self, tmp_path: Path):
+        """Files returned by multiple strategies should not be duplicated."""
+        from code_review_graph.memory.context_builder import build_context_pack
+
+        db = tmp_path / ".code-review-graph" / "graph.db"
+        db.parent.mkdir(parents=True)
+        db.touch()
+
+        # Both BFS and symbol routing return the same file
+        shared_file = "src/auth/middleware.py"
+        store = _make_store(stats_nodes=10, impact_files=[shared_file])
+        shared_node = _make_node(f"{shared_file}::check_auth", shared_file)
+        store.search_nodes.return_value = [shared_node]
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            pack = build_context_pack(
+                "fix check_auth middleware",
+                [self._auth_feature()],
+                [],
+                repo_root=tmp_path,
+            )
+
+        assert pack.relevant_files.count(shared_file) == 1
+
+    def test_graph_unavailable_falls_back_to_heuristic(self, tmp_path: Path):
+        """Without a graph, pack contains exactly the heuristic files."""
+        from code_review_graph.memory.context_builder import build_context_pack
+
+        # No graph.db at tmp_path — heuristic-only
+        pack = build_context_pack(
+            "fix auth token verification",
+            [self._auth_feature()],
+            [],
+            repo_root=tmp_path,
+        )
+
+        assert "src/auth/verify.py" in pack.relevant_files
+        assert "Context enriched" not in pack.summary

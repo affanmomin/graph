@@ -80,9 +80,11 @@ _MIN_SCORE = 0.05  # minimum relevance score to include anything
 
 # Graph enrichment limits — how many extra entries the graph bridge may add.
 # Final file count is still capped by _MAX_FILES at pack assembly time.
-_GRAPH_SEED_FILES = 10   # top N heuristic files used as graph query seeds
-_GRAPH_MAX_EXTRA_FILES = 5   # max new files added by graph enrichment
-_GRAPH_MAX_EXTRA_TESTS = 5   # max new tests added by graph enrichment
+_GRAPH_SEED_FILES = 10        # top N heuristic files used as graph query seeds
+_GRAPH_MAX_EXTRA_FILES = 5    # max new files added via impact-radius BFS
+_GRAPH_MAX_EXTRA_TESTS = 5    # max new tests added by graph enrichment
+_GRAPH_MAX_NEIGHBORS = 3      # max new files added via structural (import) neighbors
+_GRAPH_MAX_SYMBOL_FILES = 3   # max new files added via symbol-level task routing
 
 # Scoring weights — must sum to _W_TOTAL
 _W_NAME = 2.0      # strongest signal: task mentions the feature/module by name
@@ -151,7 +153,7 @@ def build_context_pack(
 
     # Graph enrichment — add structurally related files/tests when graph is available.
     # Modifies files_ordered and tests_ordered in-place; never raises.
-    graph_enriched = _enrich_with_graph(files_ordered, tests_ordered, repo_root)
+    graph_enriched = _enrich_with_graph(files_ordered, tests_ordered, repo_root, task=task)
 
     warnings = _build_warnings(
         relevant_features=top_features,
@@ -254,12 +256,24 @@ def _enrich_with_graph(
     files: list[str],
     tests: list[str],
     repo_root: Path | None,
+    task: str = "",
 ) -> bool:
     """Enrich *files* and *tests* in-place with graph-backed relationships.
 
-    Uses the top ``_GRAPH_SEED_FILES`` heuristic files as seeds and queries the
-    graph bridge for structurally related source files and test files.  Only
-    entries not already present are appended.
+    Three complementary graph strategies are combined:
+
+    1. **Impact-radius files** — source files reachable within 1 BFS hop of the
+       heuristic seed files (``get_related_files``).
+    2. **Related tests** — test files linked via TESTED_BY edges or 1-hop BFS
+       (``get_related_tests``).
+    3. **Structural neighbors** — files connected via IMPORTS_FROM in either
+       direction (``get_structural_neighbors``).
+    4. **Symbol files** — when *task* is provided, files containing symbols
+       whose names match the task description are added as extra seeds
+       (``get_task_symbol_files``).
+
+    Only entries not already present are appended.  All caps are applied before
+    the final ``_MAX_FILES`` ceiling at pack assembly time.
 
     Returns ``True`` if any new entries were added; ``False`` otherwise.
     Never raises — all graph errors are caught and logged at DEBUG level.
@@ -267,7 +281,13 @@ def _enrich_with_graph(
     if repo_root is None:
         return False
     try:
-        from .graph_bridge import get_related_files, get_related_tests, graph_available
+        from .graph_bridge import (
+            get_related_files,
+            get_related_tests,
+            get_structural_neighbors,
+            get_task_symbol_files,
+            graph_available,
+        )
         if not graph_available(repo_root):
             return False
 
@@ -277,9 +297,21 @@ def _enrich_with_graph(
 
         graph_files = get_related_files(seed_files, repo_root, max_files=_GRAPH_MAX_EXTRA_FILES)
         graph_tests = get_related_tests(seed_files, repo_root, max_tests=_GRAPH_MAX_EXTRA_TESTS)
+        graph_neighbors = get_structural_neighbors(
+            seed_files, repo_root, max_neighbors=_GRAPH_MAX_NEIGHBORS
+        )
+
+        # Symbol-level routing: find files defining symbols named in the task.
+        # Uses seed + symbol files combined so structural expansion benefits
+        # from both heuristic and symbol-matched starting points.
+        symbol_files: list[str] = []
+        if task.strip():
+            symbol_files = get_task_symbol_files(
+                task, repo_root, max_files=_GRAPH_MAX_SYMBOL_FILES
+            )
 
         enriched = False
-        for gf in graph_files:
+        for gf in [*graph_files, *graph_neighbors, *symbol_files]:
             if gf not in existing_files:
                 files.append(gf)
                 existing_files.add(gf)

@@ -11,6 +11,7 @@ graph_available(repo_root) -> bool
 get_related_files(seed_files, repo_root, max_files=10) -> list[str]
 get_related_tests(seed_files, repo_root, max_tests=5) -> list[str]
 get_structural_neighbors(seed_files, repo_root, max_neighbors=5) -> list[str]
+get_task_symbol_files(task, repo_root, max_files=5) -> list[str]
 get_explain_context(seed_files, repo_root, ...) -> ExplainGraphContext | None
 get_change_impact(changed_files, repo_root, ...) -> ChangeImpactContext | None
 get_graph_expanded_files(changed_files, repo_root, max_expansion=20) -> list[str]
@@ -25,6 +26,7 @@ Graph capabilities reused
 - ``GraphStore.get_edges_by_source()``  — outgoing edge traversal (fan-out)
 - ``GraphStore.get_edges_by_target()``  — incoming edge traversal (fan-in / TESTED_BY)
 - ``GraphStore.get_node()``             — resolve target qualified name → file_path
+- ``GraphStore.search_nodes()``         — keyword search for symbol-level task routing
 """
 
 from __future__ import annotations
@@ -221,6 +223,56 @@ def get_structural_neighbors(
             return neighbors[:max_neighbors]
     except Exception as exc:
         logger.debug("get_structural_neighbors: graph query failed: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Symbol-level task routing
+# ---------------------------------------------------------------------------
+
+
+def get_task_symbol_files(
+    task: str,
+    repo_root: str | Path,
+    max_files: int = 5,
+) -> list[str]:
+    """Return source files containing symbols that match the task description.
+
+    Uses ``GraphStore.search_nodes()`` — which already performs multi-word,
+    case-insensitive keyword search across node names and qualified names — to
+    find nodes whose names overlap with the task string.  The containing
+    source files (non-test) are returned, sorted for determinism.
+
+    This enables **symbol-level routing**: if the task mentions ``verify_token``
+    or ``InvoiceExporter``, the files that define those symbols are surfaced as
+    extra seeds even when they would not score above the heuristic threshold on
+    feature/module names alone.
+
+    Results are sorted for determinism and capped at *max_files*.
+    Returns an empty list when graph data is unavailable, task is blank, or
+    any error occurs.
+    """
+    if not task.strip():
+        return []
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return []
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return []
+            nodes = gs.search_nodes(task, limit=20)
+            seen: set[str] = set()
+            files: list[str] = []
+            for node in nodes:
+                fp = node.file_path
+                if fp and fp not in seen and not _is_test_file(fp):
+                    seen.add(fp)
+                    files.append(fp)
+            return sorted(files)[:max_files]
+    except Exception as exc:
+        logger.debug("get_task_symbol_files: graph query failed: %s", exc)
         return []
 
 
