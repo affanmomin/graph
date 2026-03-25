@@ -355,7 +355,7 @@ def memory_explain_command(args: argparse.Namespace) -> None:
     modules = classify_modules(repo_root, scan)
 
     match = match_target(target, agent_memory, features, modules)
-    print(explain_match(match, agent_memory))
+    print(explain_match(match, agent_memory, repo_root=repo_root))
 
 
 # ---------------------------------------------------------------------------

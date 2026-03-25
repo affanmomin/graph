@@ -148,7 +148,11 @@ def match_target(
 # ---------------------------------------------------------------------------
 
 
-def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
+def explain_match(
+    match: TargetMatch,
+    agent_memory_root: Path,
+    repo_root: Path | None = None,
+) -> str:
     """Return a concise explanation string for *match*.
 
     Reads the stored artifact file when available; generates an on-the-fly
@@ -157,6 +161,9 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
     Args:
         match:             A :class:`TargetMatch` returned by :func:`match_target`.
         agent_memory_root: Absolute path to ``.agent-memory/``.
+        repo_root:         Optional repo root.  When provided and a graph.db
+                           exists, a ``Graph structure`` section is appended with
+                           real structural context from the graph engine.
 
     Returns:
         Multi-line string ready to print.
@@ -198,7 +205,7 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
             lines.append(f"    … and {len(obj.files) - _MAX_EXPLAIN_FILES} more")
         lines.append("")
 
-    # Dependencies / neighbors
+    # Dependencies / neighbors (heuristic)
     deps = getattr(obj, "dependencies", [])
     if deps:
         lines.append("  Dependencies / neighbors:")
@@ -206,7 +213,7 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
             lines.append(f"    - {d}")
         lines.append("")
 
-    # Related tests
+    # Related tests (heuristic)
     if obj.tests:
         lines.append("  Related tests:")
         for t in sorted(obj.tests)[:_MAX_EXPLAIN_TESTS]:
@@ -216,6 +223,12 @@ def explain_match(match: TargetMatch, agent_memory_root: Path) -> str:
         lines.append("")
     else:
         lines.append("  Related tests : none detected")
+        lines.append("")
+
+    # Graph structure (optional — only when repo_root is supplied and graph available)
+    graph_section = _graph_explain_section(obj.files, repo_root, heuristic_tests=set(obj.tests))
+    if graph_section:
+        lines.extend(graph_section)
         lines.append("")
 
     # Safe-boundary warnings from safe-boundaries.md
@@ -347,6 +360,83 @@ def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _graph_explain_section(
+    seed_files: list[str],
+    repo_root: Path | None,
+    heuristic_tests: set[str],
+) -> list[str]:
+    """Build the ``Graph structure`` section lines for ``explain_match``.
+
+    Queries the graph bridge for structural context on *seed_files* and
+    formats it as indented output lines.  Returns an empty list when graph
+    data is unavailable or produces no additional information.
+
+    Never raises — all exceptions are caught internally.
+    """
+    if not repo_root or not seed_files:
+        return []
+    try:
+        from .graph_bridge import get_explain_context
+        ctx = get_explain_context(seed_files, repo_root)
+        if ctx is None:
+            return []
+
+        lines: list[str] = []
+        has_content = False
+
+        # Graph-linked tests not already shown in heuristic section
+        new_tests = [t for t in ctx.related_tests if t not in heuristic_tests]
+        if new_tests:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(f"    Graph-linked tests   : {', '.join(new_tests)}")
+
+        # Structural neighbors (IMPORTS_FROM in either direction)
+        if ctx.structural_neighbors:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(
+                f"    Structural neighbors : {', '.join(ctx.structural_neighbors)}"
+            )
+
+        # Fan-in: who depends on this area
+        if ctx.fan_in_count > 0:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            sample_str = (
+                f" — {', '.join(ctx.fan_in_sample)}" if ctx.fan_in_sample else ""
+            )
+            lines.append(
+                f"    Imported/called by   : {ctx.fan_in_count} file(s){sample_str}"
+            )
+
+        # Fan-out: what this area depends on
+        if ctx.fan_out_sample:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(
+                f"    Depends on           : {', '.join(ctx.fan_out_sample)}"
+            )
+
+        # Additional related files not in heuristic seed
+        seed_set = set(seed_files)
+        new_files = [f for f in ctx.related_files if f not in seed_set]
+        if new_files:
+            if not has_content:
+                lines.append("  Graph structure:")
+                has_content = True
+            lines.append(f"    Related files (1-hop): {', '.join(new_files)}")
+
+        return lines
+    except Exception as exc:
+        logger.debug("_graph_explain_section: failed: %s", exc)
+        return []
 
 
 def _append_recent_md_lines(

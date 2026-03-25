@@ -2,8 +2,8 @@
 
 Hides graph-specific access (GraphStore, SQLite, edge traversal) from the rest
 of the memory code.  All public functions degrade gracefully: when graph.db is
-absent or empty they return ``False`` / empty lists, and the caller falls back
-to heuristic-only behaviour.
+absent or empty they return ``False`` / empty lists / ``None``, and the caller
+falls back to heuristic-only behaviour.
 
 Public API
 ----------
@@ -11,20 +11,22 @@ graph_available(repo_root) -> bool
 get_related_files(seed_files, repo_root, max_files=10) -> list[str]
 get_related_tests(seed_files, repo_root, max_tests=5) -> list[str]
 get_structural_neighbors(seed_files, repo_root, max_neighbors=5) -> list[str]
+get_explain_context(seed_files, repo_root, ...) -> ExplainGraphContext | None
 
 Graph capabilities reused
 -------------------------
 - ``GraphStore.get_stats()``            — availability check (node count)
 - ``GraphStore.get_impact_radius()``    — BFS at depth-1 for related files/tests
 - ``GraphStore.get_nodes_by_file()``    — seed-file node enumeration
-- ``GraphStore.get_edges_by_source()``  — outgoing IMPORTS_FROM traversal
-- ``GraphStore.get_edges_by_target()``  — incoming TESTED_BY / IMPORTS_FROM traversal
+- ``GraphStore.get_edges_by_source()``  — outgoing edge traversal (fan-out)
+- ``GraphStore.get_edges_by_target()``  — incoming edge traversal (fan-in / TESTED_BY)
 - ``GraphStore.get_node()``             — resolve target qualified name → file_path
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -216,3 +218,145 @@ def get_structural_neighbors(
     except Exception as exc:
         logger.debug("get_structural_neighbors: graph query failed: %s", exc)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Explain context
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ExplainGraphContext:
+    """Graph-backed structural context for ``memory explain``.
+
+    Attributes:
+        related_files:        Non-test source files reachable within 1 BFS hop.
+        related_tests:        Test files linked via TESTED_BY edges or 1-hop impact.
+        structural_neighbors: Files connected via IMPORTS_FROM in either direction.
+        fan_in_count:         Total number of unique external files that import or
+                              call into the seed area (coupling pressure indicator).
+        fan_in_sample:        Up to *max_fan_sample* representative importer paths.
+        fan_out_sample:       Up to *max_fan_sample* paths this area imports from.
+    """
+
+    related_files: list[str] = field(default_factory=list)
+    related_tests: list[str] = field(default_factory=list)
+    structural_neighbors: list[str] = field(default_factory=list)
+    fan_in_count: int = 0
+    fan_in_sample: list[str] = field(default_factory=list)
+    fan_out_sample: list[str] = field(default_factory=list)
+
+
+def _file_from_qualified(qualified_name: str) -> str | None:
+    """Extract the file_path portion of a qualified node name.
+
+    Qualified names follow the pattern ``file_path::symbol`` for non-File
+    nodes, or just ``file_path`` for File nodes.  Returns ``None`` when the
+    name does not contain a recognisable file path component (e.g. bare
+    unqualified call targets).
+    """
+    if "::" in qualified_name:
+        return qualified_name.split("::")[0]
+    # A plain file path (File node) or an unresolved bare name.
+    # Accept it only if it looks like a path (contains a separator or extension).
+    if "/" in qualified_name or "\\" in qualified_name or "." in qualified_name:
+        return qualified_name
+    return None
+
+
+def get_explain_context(
+    seed_files: list[str],
+    repo_root: str | Path,
+    max_related: int = 5,
+    max_tests: int = 5,
+    max_neighbors: int = 4,
+    max_fan_sample: int = 3,
+) -> ExplainGraphContext | None:
+    """Return graph-backed structural context for *seed_files*.
+
+    Aggregates data for ``memory explain`` from a single graph open:
+
+    * 1-hop BFS via ``get_impact_radius`` for related source files and tests.
+    * TESTED_BY edges for explicitly linked test files.
+    * IMPORTS_FROM edges (both directions) for structural neighbours.
+    * Incoming CALLS + IMPORTS_FROM edge counts for fan-in coupling notes.
+    * Outgoing IMPORTS_FROM targets for fan-out dependency notes.
+
+    Returns ``None`` when the graph is unavailable or any error occurs —
+    callers must always handle the ``None`` case and fall back gracefully.
+    """
+    if not seed_files:
+        return None
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return None
+
+    seed_set = set(seed_files)
+    _INCOMING_KINDS = frozenset({"CALLS", "IMPORTS_FROM"})
+
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return None
+
+            # --- 1-hop BFS: related source files and test files ---------------
+            radius = gs.get_impact_radius(list(seed_files), max_depth=1, max_nodes=300)
+            related_files = sorted(
+                f for f in radius["impacted_files"]
+                if f not in seed_set and not _is_test_file(f)
+            )[:max_related]
+            related_tests: set[str] = set(
+                f for f in radius["impacted_files"]
+                if f not in seed_set and _is_test_file(f)
+            )
+            for node in radius["impacted_nodes"]:
+                if node.is_test:
+                    related_tests.add(node.file_path)
+
+            # --- Edge traversal: neighbors, fan-in, fan-out -------------------
+            neighbor_files: set[str] = set()
+            fan_in_files: set[str] = set()
+            fan_out_files: set[str] = set()
+
+            for fp in seed_files:
+                for node in gs.get_nodes_by_file(fp):
+                    # TESTED_BY: incoming edges from test nodes to this node.
+                    for edge in gs.get_edges_by_target(node.qualified_name):
+                        if edge.kind == "TESTED_BY" and edge.file_path not in seed_set:
+                            related_tests.add(edge.file_path)
+                        # Fan-in: other files that call or import from this area.
+                        if edge.kind in _INCOMING_KINDS and edge.file_path not in seed_set:
+                            fan_in_files.add(edge.file_path)
+                            if edge.kind == "IMPORTS_FROM":
+                                neighbor_files.add(edge.file_path)
+
+                    # Outgoing edges: what this area depends on / imports.
+                    for edge in gs.get_edges_by_source(node.qualified_name):
+                        if edge.kind == "IMPORTS_FROM":
+                            target_fp = _file_from_qualified(edge.target_qualified)
+                            if target_fp and target_fp not in seed_set:
+                                fan_out_files.add(target_fp)
+                                neighbor_files.add(target_fp)
+
+            structural_neighbors = sorted(
+                f for f in neighbor_files if not _is_test_file(f)
+            )[:max_neighbors]
+            fan_in_sample = sorted(
+                f for f in fan_in_files if not _is_test_file(f)
+            )[:max_fan_sample]
+            fan_out_sample = sorted(
+                f for f in fan_out_files if not _is_test_file(f)
+            )[:max_fan_sample]
+
+            return ExplainGraphContext(
+                related_files=related_files,
+                related_tests=sorted(related_tests)[:max_tests],
+                structural_neighbors=structural_neighbors,
+                fan_in_count=len(fan_in_files),
+                fan_in_sample=fan_in_sample,
+                fan_out_sample=fan_out_sample,
+            )
+    except Exception as exc:
+        logger.debug("get_explain_context: graph query failed: %s", exc)
+        return None
