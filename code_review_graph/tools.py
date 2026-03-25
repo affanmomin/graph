@@ -1177,9 +1177,10 @@ def memory_recent_changes(
 ) -> dict[str, Any]:
     """Show recent meaningful changes for a feature, module, or file path.
 
-    Reads ``.agent-memory/changes/recent.md`` if it exists.  Incremental
-    change tracking is not yet implemented — call ``memory_refresh`` after
-    commits to keep memory up to date.
+    Reads ``.agent-memory/changes/recent.md`` if it exists.  When a target is
+    provided, also uses the graph engine to surface structurally impacted
+    neighbours of the changed area — files and tests that may be affected
+    beyond the directly changed files.
 
     Args:
         target:    Optional feature name, module name, or file path to filter
@@ -1188,22 +1189,64 @@ def memory_recent_changes(
 
     Returns:
         Recent changes content, or a ``not_ready`` response with instructions.
+        When graph data is available, the response also includes
+        ``graph_impacted_files`` and ``graph_impacted_tests``.
     """
+    from .memory.scanner import scan_repo
+    from .memory.classifier import classify_features, classify_modules
+    from .memory.graph_bridge import get_change_impact
+
     root = _get_memory_root(repo_root)
     recent_md = root / ".agent-memory" / "changes" / "recent.md"
+
+    def _graph_impact_fields(seed_files: list[str]) -> dict:
+        """Return graph impact fields to merge into the response."""
+        ctx = get_change_impact(seed_files, root)
+        if ctx is None:
+            return {}
+        return {
+            "graph_impacted_files": ctx.impacted_files,
+            "graph_impacted_tests": ctx.impacted_tests,
+            "graph_impact_count": ctx.total_impacted,
+            "graph_impact_truncated": ctx.truncated,
+        }
+
+    def _seed_files_for_target(t: str) -> list[str]:
+        """Resolve target to a list of seed files for graph querying."""
+        try:
+            scan = scan_repo(root)
+            features = classify_features(root, scan)
+            modules = classify_modules(root, scan)
+            t_lower = t.lower()
+            for f in features:
+                if f.name.lower() == t_lower or f.slug() == t_lower.replace(" ", "-"):
+                    return f.files[:10]
+            for m in modules:
+                if m.name.lower() == t_lower or m.slug() == t_lower.replace(".", "-"):
+                    return m.files[:10]
+            # Treat target as a file path
+            return [t]
+        except Exception:
+            return []
 
     if recent_md.exists():
         content = recent_md.read_text(encoding="utf-8", errors="replace")
         if target:
-            # Best-effort filter: return sections mentioning the target
             lines = content.splitlines()
             filtered = [ln for ln in lines if not ln or target.lower() in ln.lower()]
             content = "\n".join(filtered) if filtered else content
+
+        graph_fields: dict = {}
+        if target:
+            seeds = _seed_files_for_target(target)
+            graph_fields = _graph_impact_fields(seeds)
+
         return {
             "status": "ok",
             "summary": "Recent changes loaded from .agent-memory/changes/recent.md",
             "target": target,
             "content": content,
+            **graph_fields,
         }
 
     return {
