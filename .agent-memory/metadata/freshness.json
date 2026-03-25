@@ -1,0 +1,17 @@
+{
+  "artifacts_refreshed": [
+    ".agent-memory/changes/recent.md"
+  ],
+  "changed_files": [],
+  "changed_files_count": 0,
+  "graph_expanded_features": [],
+  "graph_expanded_files": [],
+  "graph_expanded_modules": [],
+  "impacted_features": [],
+  "impacted_modules": [
+    "code_review_graph-memory"
+  ],
+  "mode": "full",
+  "reason": "full refresh requested",
+  "refreshed_at": "2026-03-25T12:12:17.032013+00:00"
+}
