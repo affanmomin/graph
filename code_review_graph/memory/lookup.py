@@ -296,7 +296,14 @@ def changed_match(
     freshness = load_freshness_json(metadata_dir)
 
     lines: list[str] = []
-    kind_label = "Feature" if match.kind == "feature" else "Module"
+    # Same kind-label logic as explain_match: derive from obj type for "path" matches.
+    if match.kind == "feature":
+        kind_label = "Feature"
+    elif match.kind == "module":
+        kind_label = "Module"
+    else:  # "path" — derive from underlying object type
+        from .models import FeatureMemory as _FM
+        kind_label = "Feature" if isinstance(match.obj, _FM) else "Module"
     lines.append(f"{kind_label}: {match.name}")
     lines.append("")
 
@@ -417,34 +424,37 @@ def _graph_change_section(
         lines: list[str] = []
         has_content = False
 
-        if ctx.impacted_files:
+        def _header() -> None:
+            nonlocal has_content
             if not has_content:
                 lines.append("  Graph impact:")
                 has_content = True
-            lines.append(
-                f"    Structural neighbors : {', '.join(ctx.impacted_files)}"
-            )
+
+        def _bullets(items: list[str]) -> None:
+            for item in items:
+                lines.append(f"      - {item}")
+
+        if ctx.impacted_files:
+            _header()
+            lines.append("    Structural neighbors:")
+            _bullets(ctx.impacted_files)
 
         if ctx.impacted_tests:
-            if not has_content:
-                lines.append("  Graph impact:")
-                has_content = True
-            lines.append(
-                f"    Tests to re-run      : {', '.join(ctx.impacted_tests)}"
-            )
+            _header()
+            lines.append("    Tests to re-run:")
+            _bullets(ctx.impacted_tests)
 
         # Map impacted files to named features/modules via sources.json
         areas = _impacted_areas(ctx.impacted_files, agent_memory_root, set(seed_files))
         if areas:
-            if not has_content:
-                lines.append("  Graph impact:")
-                has_content = True
-            lines.append(f"    Impacted areas       : {', '.join(areas)}")
+            _header()
+            lines.append("    Impacted areas:")
+            _bullets(areas)
 
         if has_content and ctx.total_impacted > 0:
             trunc = " (truncated)" if ctx.truncated else ""
             lines.append(
-                f"    Impact scope         : {ctx.total_impacted} node(s) impacted{trunc}"
+                f"    Impact scope: {ctx.total_impacted} node(s) impacted{trunc}"
             )
 
         return lines
