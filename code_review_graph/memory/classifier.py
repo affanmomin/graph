@@ -148,17 +148,39 @@ def classify_modules(repo_root: Path, scan: RepoScan) -> list[ModuleMemory]:
                     rationale="top-level source directory (no sub-packages detected)",
                 )
 
+    # Graph enrichment: compute signals for all candidates in one DB pass.
+    groups = {name: cand.files for name, cand in candidates.items()}
+    graph_signals = _get_graph_signals(repo_root, groups)
+
+    # Build file → module name map for dependency resolution.
+    file_to_module: dict[str, str] = {}
+    for name, cand in candidates.items():
+        for fp in cand.files:
+            file_to_module[fp] = cand.name
+
     # Build ModuleMemory objects
     result: list[ModuleMemory] = []
     for cand in candidates.values():
         tests = _find_tests_for(repo_root, scan, cand.files)
+        confidence = cand.confidence
+        sig = graph_signals.get(cand.name)
+        if sig is not None:
+            # Adjust confidence based on internal graph connectivity.
+            delta = sig.confidence_delta(len(cand.files))
+            confidence = max(0.2, min(0.98, confidence + delta))
+            # Merge graph-found tests (TESTED_BY edges) with heuristic tests.
+            tests = sorted(set(tests) | set(sig.test_files))
         result.append(ModuleMemory(
             name=cand.name,
             files=sorted(cand.files),
-            tests=sorted(tests),
-            confidence=round(cand.confidence, 2),
+            tests=tests,
+            confidence=round(confidence, 2),
             summary=cand.rationale,
         ))
+
+    # Populate dependencies / dependents from graph signals (module-level edges).
+    if graph_signals:
+        _resolve_module_dependencies(result, graph_signals, file_to_module)
 
     return sorted(result, key=lambda m: m.name)
 
@@ -197,17 +219,29 @@ def classify_features(repo_root: Path, scan: RepoScan) -> list[FeatureMemory]:
     # Cross-cutting: tokens that appear in multiple sub-trees (lower confidence)
     _detect_cross_cutting(repo_root, scan, candidates)
 
+    # Graph enrichment: compute signals for all candidates in one DB pass.
+    groups = {cand.name: cand.files for cand in candidates.values() if cand.files}
+    graph_signals = _get_graph_signals(repo_root, groups)
+
     # Build FeatureMemory objects
     result: list[FeatureMemory] = []
     for cand in candidates.values():
         if not cand.files:
             continue
         tests = _find_tests_for(repo_root, scan, cand.files)
+        confidence = cand.confidence
+        sig = graph_signals.get(cand.name)
+        if sig is not None:
+            # Adjust confidence based on internal graph connectivity.
+            delta = sig.confidence_delta(len(cand.files))
+            confidence = max(0.2, min(0.98, confidence + delta))
+            # Merge graph-found tests (TESTED_BY edges) with heuristic tests.
+            tests = sorted(set(tests) | set(sig.test_files))
         result.append(FeatureMemory(
             name=cand.name,
             files=sorted(cand.files),
-            tests=sorted(tests),
-            confidence=round(cand.confidence, 2),
+            tests=tests,
+            confidence=round(confidence, 2),
             summary=cand.rationale,
         ))
 
@@ -551,3 +585,65 @@ def _title_case_name(raw: str) -> str:
     # Split on underscores and hyphens
     parts = raw.replace("-", "_").split("_")
     return " ".join(p.capitalize() for p in parts if p)
+
+
+# ---------------------------------------------------------------------------
+# Graph enrichment helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_graph_signals(
+    repo_root: Path,
+    groups: dict[str, list[str]],
+) -> dict:
+    """Load graph signals for all groups in a single DB pass.
+
+    Returns an empty dict when the graph is unavailable or any error occurs,
+    allowing the caller to proceed with filesystem-only classification.
+    """
+    if not groups:
+        return {}
+    try:
+        from .graph_bridge import get_all_classifier_signals
+        return get_all_classifier_signals(groups, repo_root)
+    except Exception as exc:
+        logger.debug("classifier: graph signals unavailable: %s", exc)
+        return {}
+
+
+def _resolve_module_dependencies(
+    modules: list[ModuleMemory],
+    signals: dict,
+    file_to_module: dict[str, str],
+) -> None:
+    """Populate ``dependencies`` and ``dependents`` on each module using graph signals.
+
+    Maps the raw file paths in :attr:`ClassifierGraphSignals.external_dep_files`
+    and :attr:`ClassifierGraphSignals.external_dependent_files` back to named
+    modules via *file_to_module*.  Updates the lists in-place.
+
+    Args:
+        modules:        The full list of classified modules (mutated in-place).
+        signals:        Mapping of module name → ClassifierGraphSignals.
+        file_to_module: Mapping of repo-relative file path → owning module name.
+    """
+    for module in modules:
+        sig = signals.get(module.name)
+        if sig is None:
+            continue
+
+        # Modules that this module imports from.
+        dep_names: set[str] = set()
+        for fp in sig.external_dep_files:
+            owner = file_to_module.get(fp)
+            if owner and owner != module.name:
+                dep_names.add(owner)
+        module.dependencies = sorted(dep_names)
+
+        # Modules that import from this module.
+        dependent_names: set[str] = set()
+        for fp in sig.external_dependent_files:
+            owner = file_to_module.get(fp)
+            if owner and owner != module.name:
+                dependent_names.add(owner)
+        module.dependents = sorted(dependent_names)
