@@ -1,7 +1,7 @@
 <h1 align="center">code-review-graph</h1>
 
 <p align="center">
-  <strong>Stop burning tokens. Start reviewing smarter.</strong>
+  <strong>Graph-powered repo memory for Claude Code. Stop re-explaining your codebase every session.</strong>
 </p>
 
 <p align="center">
@@ -15,319 +15,157 @@
 
 <br>
 
-Claude Code re-reads your entire codebase on every task. `code-review-graph` fixes that. It builds a structural map of your code with [Tree-sitter](https://tree-sitter.github.io/tree-sitter/), tracks changes incrementally, and gives Claude precise context so it reads only what matters.
+Every Claude Code session starts cold. You paste architecture docs. You re-explain the file layout. You repeat the same context you gave last week.
 
-<p align="center">
-  <img src="diagrams/diagram1_before_vs_after.png" alt="The Token Problem: 6.8x fewer tokens with higher review quality" width="85%" />
-</p>
+`code-review-graph` fixes this permanently. It parses your repo with Tree-sitter, builds a structural code graph, and writes durable Markdown artifacts to `.agent-memory/` — committed to Git and readable by Claude at every session start. When you start a task, one command surfaces exactly the files, features, and tests Claude needs to know about. Nothing more.
 
 ---
 
 ## Quick Start
 
-**Claude Code Plugin** (recommended)
-
-```bash
-claude plugin marketplace add tirth8205/code-review-graph
-claude plugin install code-review-graph@code-review-graph
-```
-
-**pip**
-
 ```bash
 pip install code-review-graph
-code-review-graph install
+cd your-project
+
+# Build the graph and generate memory artifacts (one-time setup)
+code-review-graph build
+code-review-graph memory init
+
+# Commit the memory to Git so every session starts with context
+git add .agent-memory/
+git commit -m "chore: add repo memory"
 ```
 
-Restart Claude Code after either method. Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
+Now tell Claude what you're working on:
 
-Then open your project and tell Claude:
-
-```
-Build the code review graph for this project
+```bash
+code-review-graph memory prepare-context "add rate limiting to the API"
 ```
 
-The initial build takes ~10 seconds for a 500-file project. After that, the graph updates automatically on every file edit and git commit.
+Claude gets a focused pack — the relevant features, modules, and files — without reading the entire codebase.
+
+---
+
+## The Four Core Workflows
+
+### 1. Prepare context for a task
+
+```bash
+code-review-graph memory prepare-context "fix the streaming bug in the HTTP client"
+```
+
+Returns a focused context pack: which features are relevant, which files to read, which tests to run. Capped at 20 files. Powered by graph-assisted relevance scoring — not just keyword matching.
+
+### 2. Explain an area of the codebase
+
+```bash
+code-review-graph memory explain authentication
+code-review-graph memory explain src/payments/
+```
+
+Surfaces the stored memory artifact for a feature or module: its files, test coverage, dependencies, confidence score, and last refresh timestamp. No re-analysis needed — reads from `.agent-memory/` on disk.
+
+### 3. Trace the impact of a change
+
+```bash
+code-review-graph memory changed src/auth/middleware.py
+code-review-graph memory changed src/payments/
+```
+
+Shows which memory areas (features and modules) own the changed files, then uses graph BFS to surface structurally related areas that may also be affected — callers, dependents, import chains — even when those files didn't change directly.
+
+### 4. Refresh memory after commits
+
+```bash
+code-review-graph memory refresh          # incremental (only changed areas)
+code-review-graph memory refresh --full   # full regeneration
+```
+
+Runs automatically as a post-commit hook. Only artifacts whose source files changed are regenerated. Graph expansion identifies structurally related areas that should also refresh.
 
 ---
 
 ## How It Works
 
-Your repository is parsed into an AST with Tree-sitter, stored as a graph of nodes (functions, classes, imports) and edges (calls, inheritance, test coverage), then queried at review time to compute the minimal set of files Claude needs to read.
+### Two distinct layers
 
-<p align="center">
-  <img src="diagrams/diagram2_architecture_pipeline.png" alt="Architecture pipeline: Repository to Tree-sitter Parser to SQLite Graph to Blast Radius to Minimal Review Set" width="100%" />
-</p>
+**Layer A — The graph engine (local-only)**
 
-<details>
-<summary><strong>Blast-radius analysis</strong></summary>
-<br>
+Tree-sitter parses your repo into an AST. Nodes (functions, classes, imports) and edges (calls, inheritance, test coverage, imports) are stored in a SQLite database at `.code-review-graph/graph.db`. This is a performance cache — never committed to Git, rebuilt from source on any machine.
 
-When a file changes, the graph traces every caller, dependent, and test that could be affected. This is the "blast radius" of the change. Claude reads only these files instead of scanning the whole project.
+**Layer B — Repo memory (committed to Git)**
 
-<p align="center">
-  <img src="diagrams/diagram3_blast_radius.png" alt="Blast radius visualization showing how a change to login() propagates to callers, dependents, and tests" width="70%" />
-</p>
+The memory subsystem uses the graph as structural truth. It classifies features and modules from filesystem heuristics, then refines confidence scores and dependency maps using real graph signals (internal edge density, IMPORTS\_FROM chains, TESTED\_BY edges). The output is written to `.agent-memory/` as plain Markdown and JSON — human-readable, diff-friendly, and committed to Git.
 
-</details>
+```
+Graph engine (local)          Repo memory (committed)
+─────────────────────         ──────────────────────────────
+.code-review-graph/           .agent-memory/
+  graph.db  ──────────────►     repo.md
+  (SQLite)                      architecture.md
+  14 languages                  features/<slug>.md
+  BFS impact analysis           modules/<slug>.md
+  incremental updates           rules/conventions.md
+                                rules/safe-boundaries.md
+                                overrides/global.yaml
+                                metadata/manifest.json
+                                metadata/freshness.json
+                                metadata/confidence.json
+                                metadata/sources.json
+```
 
-<details>
-<summary><strong>Incremental updates in &lt; 2 seconds</strong></summary>
-<br>
+### What gets committed vs what stays local
 
-On every git commit or file save, a hook fires. The graph diffs changed files, finds their dependents via SHA-256 hash checks, and re-parses only what changed. A 2,900-file project re-indexes in under 2 seconds.
+| Data | Location | Committed to Git? |
+|------|----------|-------------------|
+| `.agent-memory/` artifacts | repo root | **Yes** — shared with the whole team |
+| `.code-review-graph/graph.db` | repo root | **No** — local index, rebuild any time |
+| Embeddings cache | local | **No** |
 
-<p align="center">
-  <img src="diagrams/diagram4_incremental_update.png" alt="Incremental update flow: git commit triggers diff, finds dependents, re-parses only 5 files while 2,910 are skipped" width="90%" />
-</p>
+Commit `.agent-memory/` once. Every subsequent session — and every team member — starts with full context automatically.
 
-</details>
+### Graph-assisted classification
 
-<details>
-<summary><strong>14 supported languages</strong></summary>
-<br>
+Classification is not just directory heuristics. The graph engine contributes real structural signals:
 
-Python, TypeScript, JavaScript, Vue, Go, Rust, Java, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++
-
-Each language has full Tree-sitter grammar support for functions, classes, imports, call sites, inheritance, and test detection.
-
-</details>
+- **Confidence adjustment**: features/modules with dense internal call graphs score higher confidence; isolated file clusters score lower
+- **Test mapping**: TESTED\_BY edges map test files to the features and modules they cover
+- **Dependency resolution**: IMPORTS\_FROM edges build accurate module dependency and dependent maps
+- **Context expansion**: `prepare-context` and `changed` use graph BFS to pull in structurally related files that keyword matching alone would miss
 
 ---
 
-## Benchmarks
-
-All figures come from real tests on three production open-source repositories.
-
-<p align="center">
-  <img src="diagrams/diagram5_benchmark_board.png" alt="Benchmarks: httpx 27.3x, FastAPI 6.3x, Next.js 4.9x token reduction with higher review quality" width="90%" />
-</p>
-
-<details>
-<summary><strong>Code review benchmark details (6.8x average reduction)</strong></summary>
-<br>
-
-Tested across 6 real git commits. The graph replaces reading entire source files with a compact structural summary (156-207 tokens) covering blast radius, test coverage gaps, and dependency chains.
-
-| Repo | Size | Standard Approach | With Graph | Reduction | Review Quality |
-|------|-----:|------------------:|-----------:|----------:|:-:|
-| [httpx](https://github.com/encode/httpx) | 125 files | 12,507 tokens | 458 tokens | 26.2x | 9.0 vs 7.0 |
-| [FastAPI](https://github.com/fastapi/fastapi) | 2,915 files | 5,495 tokens | 871 tokens | 8.1x | 8.5 vs 7.5 |
-| [Next.js](https://github.com/vercel/next.js) | 27,732 files | 21,614 tokens | 4,457 tokens | 6.0x | 9.0 vs 7.0 |
-| **Average** | | **13,205** | **1,928** | **6.8x** | **8.8 vs 7.2** |
-
-Standard approach: reading all changed files plus the diff. Quality scored on accuracy, completeness, bug-catching potential, and actionable insight (1-10 scale).
-
-</details>
-
-<details>
-<summary><strong>Live coding task details (14.1x average, 49x peak)</strong></summary>
-<br>
-
-An agent performed 6 real coding tasks (adding features, fixing bugs) across the same repositories. The graph directed it to the right files and away from everything else.
-
-| Task | Repo | With Graph | Without Graph | Reduction | Files Skipped |
-|------|------|--------:|-----------:|----------:|---:|
-| Add rate limiter | httpx | 14,090 | 64,666 | 4.6x | 58 |
-| Fix streaming bug | httpx | 14,090 | 64,666 | 4.6x | 59 |
-| Add rate limiter | FastAPI | 37,217 | 138,585 | 3.7x | 1,120 |
-| Fix streaming bug | FastAPI | 36,986 | 138,585 | 3.7x | 1,121 |
-| Add rate limiter | Next.js | 15,049 | 739,352 | 49.1x | ~16,000 |
-| Fix streaming bug | Next.js | 16,135 | 739,352 | 45.8x | ~16,000 |
-
-The graph identified the correct files in every case. Savings scale with repository size.
-
-</details>
-
-<details>
-<summary><strong>Monorepo scale: the 49x case</strong></summary>
-<br>
-
-Large repositories benefit most. In the Next.js monorepo (27,732 files, 739K tokens), the graph narrows the review context to ~15 files and 15K tokens, a 49x reduction with 27,700+ files excluded entirely.
-
-<p align="center">
-  <img src="diagrams/diagram6_monorepo_funnel.png" alt="Next.js monorepo: 27,732 files funneled down to ~15 files, 49x fewer tokens" width="75%" />
-</p>
-
-</details>
-
----
-
-## Usage
-
-<details>
-<summary><strong>Slash commands</strong></summary>
-<br>
-
-| Command | Description |
-|---------|-------------|
-| `/code-review-graph:build-graph` | Build or rebuild the code graph |
-| `/code-review-graph:review-delta` | Review changes since last commit |
-| `/code-review-graph:review-pr` | Full PR review with blast-radius analysis |
-
-</details>
-
-<details>
-<summary><strong>CLI reference</strong></summary>
-<br>
-
-```bash
-code-review-graph install     # Register MCP server with Claude Code
-code-review-graph build       # Parse entire codebase
-code-review-graph update      # Incremental update (changed files only)
-code-review-graph status      # Graph statistics
-code-review-graph watch       # Auto-update on file changes
-code-review-graph visualize   # Generate interactive HTML graph
-code-review-graph serve       # Start MCP server
-```
-
-</details>
-
-<details>
-<summary><strong>MCP tools</strong></summary>
-<br>
-
-Claude uses these automatically once the graph is built.
-
-| Tool | Description |
-|------|-------------|
-| `build_or_update_graph_tool` | Build or incrementally update the graph |
-| `get_impact_radius_tool` | Blast radius of changed files |
-| `get_review_context_tool` | Token-optimised review context with structural summary |
-| `query_graph_tool` | Callers, callees, tests, imports, inheritance queries |
-| `semantic_search_nodes_tool` | Search code entities by name or meaning |
-| `embed_graph_tool` | Compute vector embeddings for semantic search |
-| `list_graph_stats_tool` | Graph size and health |
-| `get_docs_section_tool` | Retrieve documentation sections |
-| `find_large_functions_tool` | Find functions/classes exceeding a line-count threshold |
-
-</details>
-
----
-
-## Features
-
-| Feature | Details |
-|---------|---------|
-| **Incremental updates** | Re-parses only changed files. Subsequent updates complete in under 2 seconds. |
-| **14 languages** | Python, TypeScript, JavaScript, Vue, Go, Rust, Java, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++ |
-| **Blast-radius analysis** | Shows exactly which functions, classes, and files are affected by any change |
-| **Auto-update hooks** | Graph updates on every file edit and git commit without manual intervention |
-| **Semantic search** | Optional vector embeddings via sentence-transformers |
-| **Interactive visualisation** | D3.js force-directed graph with edge-type toggles and search |
-| **Local storage** | SQLite file in `.code-review-graph/`. No external database, no cloud dependency. |
-| **Watch mode** | Continuous graph updates as you work |
-
-<details>
-<summary><strong>Configuration</strong></summary>
-<br>
-
-To exclude paths from indexing, create a `.code-review-graphignore` file in your repository root:
-
-```
-generated/**
-*.generated.ts
-vendor/**
-node_modules/**
-```
-
-For semantic search, install the optional embeddings dependencies:
-
-```bash
-pip install code-review-graph[embeddings]
-```
-
-</details>
-
----
-
-## Repo Memory
-
-`code-review-graph` includes a **repo-memory** subsystem that generates a `.agent-memory/` folder committed to your repository. Claude Code reads these files at the start of every session — eliminating the need to re-explain your project structure every time.
-
-### What it is
-
-A set of concise, human- and agent-readable Markdown artifacts that capture:
-- what features and modules exist in your repo
-- which files belong to each area
-- which tests cover each area
-- project conventions and safe editing boundaries
-- human corrections and hints (via override files)
-
-### Why it exists
-
-Without repo memory, every Claude Code session starts cold: you paste architecture docs, explain file layout, repeat context you gave last week. Repo memory makes that context persistent and automatic.
-
-### How it works
-
-1. **`memory init`** scans your repo with Tree-sitter, classifies features and modules, and writes `.agent-memory/` artifacts to disk.
-2. **`memory refresh`** re-runs incrementally after changes — only affected areas are regenerated.
-3. **`memory prepare-context`** assembles a focused context pack for a specific task (e.g. "add rate limiting") so Claude reads only what's relevant.
-4. **`memory explain`** and **`memory changed`** let you query the stored memory directly.
-5. **Commit `.agent-memory/`** to Git so every session — and every team member — starts with full context.
-
-### CLI commands
-
-```bash
-# One-time setup
-code-review-graph memory init
-
-# Keep memory current after changes
-code-review-graph memory refresh              # incremental (default)
-code-review-graph memory refresh --full       # full regeneration
-
-# Query memory
-code-review-graph memory prepare-context "add rate limiting to the API"
-code-review-graph memory explain authentication
-code-review-graph memory changed src/payments/
-
-# Edit human overrides
-code-review-graph memory annotate
-```
-
-All commands accept `--repo <path>` to target a specific directory (defaults to the current project root).
-
-### `.agent-memory/` layout
+## `.agent-memory/` layout
 
 ```
 .agent-memory/
-  repo.md                     # high-level repo overview
-  architecture.md             # boundaries, flows, risky areas
+  repo.md                     # high-level repo summary (language, size, entry points)
+  architecture.md             # module boundaries, data flows, risky areas
   features/
-    <slug>.md                 # one file per detected feature
+    <slug>.md                 # one file per detected feature: files, tests, description
   modules/
-    <slug>.md                 # one file per code module
+    <slug>.md                 # one file per code module: files, tests, deps, confidence
   rules/
-    conventions.md            # language/framework conventions
+    conventions.md            # coding conventions inferred + human-added
     safe-boundaries.md        # paths that must not be casually edited
   overrides/
-    global.yaml               # human corrections and permanent hints
+    global.yaml               # human corrections, permanent hints, always-include paths
   metadata/
-    manifest.json             # what was generated and when
-    freshness.json            # last refresh timestamps
-    confidence.json           # classification confidence per artifact
-    sources.json              # file → feature/module index
+    manifest.json             # artifact inventory with generation timestamps
+    freshness.json            # last refresh per artifact + graph-expanded areas
+    confidence.json           # classification confidence per feature/module
+    sources.json              # file → feature/module ownership index
 ```
 
-### Local-only vs Git-committed
+---
 
-| Data | Where | Committed? |
-|------|-------|-----------|
-| `.agent-memory/` artifacts | repo root | **Yes** — share with team |
-| `.code-review-graph/graph.db` | repo root | No — local index only |
-| Embeddings cache | local | No |
+## Human overrides
 
-Commit `.agent-memory/` so every collaborator (and every Claude Code session) starts with full context. Exclude `.code-review-graph/` — it is a local performance cache rebuilt from source.
-
-### How Claude Code uses it
-
-Once `.agent-memory/` is committed and the MCP server is running, Claude Code automatically reads `repo.md` and `architecture.md` at session start. For specific tasks, call `memory prepare-context` to surface the right features, modules, and files before asking Claude to implement something.
-
-### Override files
-
-Create `.agent-memory/overrides/global.yaml` to teach the system things it cannot infer:
+The system infers what it can from code structure. Tell it what it cannot infer:
 
 ```yaml
+# .agent-memory/overrides/global.yaml
+
 always_include:
   - docs/architecture.md
   - src/auth/middleware.py
@@ -337,14 +175,137 @@ never_edit:
   - generated/
 
 notes:
-  - "The payments module is PCI-scoped — any change needs security review."
+  - "The payments module is PCI-scoped — any change needs a security review."
+  - "We use a custom JWT library, not PyJWT."
 
 task_hints:
   - pattern: "add endpoint"
-    hint: "Register new routes in src/api/router.py."
+    hint: "Register new routes in src/api/router.py and add a test under tests/api/."
+  - pattern: "database migration"
+    hint: "Use alembic revision --autogenerate; never edit existing migrations."
 ```
 
-These overrides are merged into every `prepare-context` result and reflected in `rules/conventions.md` and `rules/safe-boundaries.md`.
+Overrides merge into every `prepare-context` result and are reflected in `rules/conventions.md` and `rules/safe-boundaries.md`.
+
+---
+
+## CLI reference
+
+### Memory commands
+
+```bash
+code-review-graph memory init                                # Generate .agent-memory/ artifacts
+code-review-graph memory refresh                             # Incremental refresh (post-commit)
+code-review-graph memory refresh --full                      # Full regeneration
+code-review-graph memory prepare-context "<task>"            # Focused context pack for a task
+code-review-graph memory explain <feature|module|path>       # Show stored memory for an area
+code-review-graph memory changed <file|dir>                  # Impact analysis for changed files
+code-review-graph memory annotate                            # Open override file for editing
+```
+
+### Graph commands
+
+```bash
+code-review-graph build       # Parse entire codebase into the graph
+code-review-graph update      # Incremental update (changed files only)
+code-review-graph status      # Graph statistics
+code-review-graph watch       # Auto-update on file changes
+code-review-graph visualize   # Generate interactive D3.js HTML graph
+code-review-graph serve       # Start MCP server
+code-review-graph install     # Register MCP server with Claude Code
+```
+
+All commands accept `--repo <path>` to target a specific directory.
+
+---
+
+## Features
+
+| Feature | Details |
+|---------|---------|
+| **Durable repo memory** | `.agent-memory/` committed to Git. Every session and every team member starts with full context. |
+| **Graph-assisted classification** | Features and modules classified from real structural signals — edge density, import chains, TESTED\_BY edges. |
+| **Task-aware context packs** | `prepare-context` assembles focused packs (≤ 20 files) for a specific task, not the whole codebase. |
+| **Graph-expanded impact analysis** | `changed` traces not just direct owners but structurally adjacent areas via BFS. |
+| **Incremental refresh** | Only artifacts whose source files changed are regenerated. Post-commit hook runs automatically. |
+| **Human overrides** | `overrides/global.yaml` teaches the system domain knowledge it cannot infer from code. |
+| **14 languages** | Python, TypeScript, JavaScript, Vue, Go, Rust, Java, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++ |
+| **Local graph, committed memory** | Graph DB is a local performance cache. Memory artifacts are plain Markdown — diffable, reviewable, committable. |
+| **MCP-compatible** | Graph tools exposed via MCP for direct Claude Code integration. |
+| **Interactive visualisation** | D3.js force-directed graph with edge-type toggles and search. |
+
+---
+
+## MCP tools
+
+When the MCP server is running, Claude can call these directly:
+
+| Tool | Description |
+|------|-------------|
+| `build_or_update_graph_tool` | Build or incrementally update the code graph |
+| `get_impact_radius_tool` | BFS blast radius of changed files |
+| `get_review_context_tool` | Structural summary for review context |
+| `query_graph_tool` | Callers, callees, tests, imports, inheritance queries |
+| `semantic_search_nodes_tool` | Search code entities by name or meaning |
+| `list_graph_stats_tool` | Graph size and health stats |
+| `find_large_functions_tool` | Find functions/classes exceeding a line threshold |
+
+---
+
+## Graph engine details
+
+<details>
+<summary><strong>Blast-radius analysis</strong></summary>
+<br>
+
+When a file changes, the graph traces every caller, dependent, and test that could be affected — the "blast radius" of the change. The `memory changed` command uses this to surface related areas beyond the directly changed files.
+
+</details>
+
+<details>
+<summary><strong>Incremental updates in &lt; 2 seconds</strong></summary>
+<br>
+
+On every git commit or file save, a hook fires. The graph diffs changed files via SHA-256 hash checks and re-parses only what changed. A 2,900-file project re-indexes in under 2 seconds.
+
+</details>
+
+<details>
+<summary><strong>14 supported languages</strong></summary>
+<br>
+
+Python, TypeScript, JavaScript, Vue, Go, Rust, Java, C#, Ruby, Kotlin, Swift, PHP, Solidity, C/C++
+
+Each language uses full Tree-sitter grammar support for functions, classes, imports, call sites, inheritance, and test detection.
+
+</details>
+
+<details>
+<summary><strong>Excluding paths from indexing</strong></summary>
+<br>
+
+Create a `.code-review-graphignore` file in your repository root:
+
+```
+generated/**
+*.generated.ts
+vendor/**
+node_modules/**
+```
+
+</details>
+
+<details>
+<summary><strong>Semantic search (optional)</strong></summary>
+<br>
+
+Install optional embeddings support for vector-based code search:
+
+```bash
+pip install code-review-graph[embeddings]
+```
+
+</details>
 
 ---
 
@@ -355,7 +316,7 @@ git clone https://github.com/tirth8205/code-review-graph.git
 cd code-review-graph
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest
+pytest tests/ --tb=short -q
 ```
 
 <details>
@@ -372,5 +333,5 @@ MIT. See [LICENSE](LICENSE).
 
 <p align="center">
 <br>
-<code>pip install code-review-graph && code-review-graph install</code>
+<code>pip install code-review-graph && code-review-graph memory init</code>
 </p>

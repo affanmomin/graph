@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "code-review-graph"
 version = "1.8.4"
-description = "Persistent incremental knowledge graph for token-efficient, context-aware code reviews with Claude Code"
+description = "Graph-powered repo memory for Claude Code — persistent, Git-committed context so you never re-explain your codebase"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Tirth" },
 ]
-keywords = ["code-review", "knowledge-graph", "tree-sitter", "claude-code", "mcp"]
+keywords = ["repo-memory", "claude-code", "knowledge-graph", "tree-sitter", "mcp", "code-review"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -22,7 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Version Control :: Git",
 ]
 dependencies = [
     "mcp>=1.0.0,<2",
