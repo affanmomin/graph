@@ -959,8 +959,9 @@ def _get_memory_root(repo_root: str | None = None) -> Path:
 def memory_init(repo_root: str | None = None) -> dict[str, Any]:
     """Scan the repo and generate all ``.agent-memory/`` artifacts.
 
-    Runs the full pipeline: scanner → classifier → generator → writer →
-    metadata.  Safe to call repeatedly — unchanged files are not rewritten.
+    Delegates to :func:`~memory.commands.run_memory_init_pipeline` — the
+    single shared implementation used by both the CLI and this MCP tool.
+    Safe to call repeatedly — unchanged files are not rewritten.
 
     Args:
         repo_root: Repository root path.  Auto-detected if omitted.
@@ -969,52 +970,15 @@ def memory_init(repo_root: str | None = None) -> dict[str, Any]:
         Structured summary of what was generated (features, modules,
         languages, artifact write-statuses).
     """
-    from .memory.scanner import scan_repo
-    from .memory.classifier import classify_features, classify_modules
-    from .memory.generator import (
-        generate_repo_summary, generate_architecture_doc,
-        generate_feature_doc, generate_module_doc,
-    )
-    from .memory.metadata import generate_manifest, save_manifest, save_sources_json, save_confidence_json
-    from .memory.writer import ensure_memory_dirs, write_text_if_changed
+    from .memory.commands import run_memory_init_pipeline
 
     root = _get_memory_root(repo_root)
-    scan = scan_repo(root)
-    features = classify_features(root, scan)
-    modules = classify_modules(root, scan)
-    dirs = ensure_memory_dirs(root)
+    result = run_memory_init_pipeline(root)
 
-    artifacts: list[dict] = []
-    write_statuses: dict[str, str] = {}
-
-    # Top-level docs
-    for artifact_id, artifact_type, rel, content in [
-        ("repo", "repo", ".agent-memory/repo.md", generate_repo_summary(scan)),
-        ("architecture", "architecture", ".agent-memory/architecture.md", generate_architecture_doc(scan)),
-    ]:
-        path = dirs["root"] / rel.split("/")[-1]
-        write_statuses[rel] = write_text_if_changed(path, content)
-        artifacts.append({"artifact_id": artifact_id, "artifact_type": artifact_type, "relative_path": rel})
-
-    # Feature docs
-    for feature in features:
-        slug = feature.slug()
-        rel = f".agent-memory/features/{slug}.md"
-        write_statuses[rel] = write_text_if_changed(dirs["features"] / f"{slug}.md", generate_feature_doc(feature))
-        artifacts.append({"artifact_id": f"feature:{slug}", "artifact_type": "feature", "relative_path": rel})
-
-    # Module docs
-    for module in modules:
-        slug = module.slug()
-        rel = f".agent-memory/modules/{slug}.md"
-        write_statuses[rel] = write_text_if_changed(dirs["modules"] / f"{slug}.md", generate_module_doc(module))
-        artifacts.append({"artifact_id": f"module:{slug}", "artifact_type": "module", "relative_path": rel})
-
-    # Metadata
-    manifest = generate_manifest(scan, artifacts)
-    write_statuses[".agent-memory/metadata/manifest.json"] = save_manifest(manifest, dirs["metadata"])
-    write_statuses[".agent-memory/metadata/sources.json"] = save_sources_json(features, modules, dirs["metadata"])
-    write_statuses[".agent-memory/metadata/confidence.json"] = save_confidence_json(features, modules, dirs["metadata"])
+    scan = result["scan"]
+    features = result["features"]
+    modules = result["modules"]
+    write_statuses = result["write_statuses"]
 
     created = sum(1 for s in write_statuses.values() if s == "created")
     updated = sum(1 for s in write_statuses.values() if s == "updated")

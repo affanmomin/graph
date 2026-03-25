@@ -421,17 +421,24 @@ class TestMemoryRefreshTool:
 class TestSharedLogicDelegation:
     """Tools must delegate to the memory package, not duplicate logic."""
 
-    def test_memory_init_imports_scanner(self):
-        """memory_init uses scanner.scan_repo."""
+    def test_memory_init_delegates_to_pipeline(self):
+        """memory_init must delegate to run_memory_init_pipeline (no duplicated logic)."""
         import inspect
         from code_review_graph import tools
         src = inspect.getsource(tools.memory_init)
+        assert "run_memory_init_pipeline" in src
+
+    def test_memory_init_pipeline_imports_scanner(self):
+        """The shared pipeline is where scanner/classifier logic lives."""
+        import inspect
+        from code_review_graph.memory.commands import run_memory_init_pipeline
+        src = inspect.getsource(run_memory_init_pipeline)
         assert "scan_repo" in src
 
-    def test_memory_init_imports_classifier(self):
-        from code_review_graph import tools
+    def test_memory_init_pipeline_imports_classifier(self):
         import inspect
-        src = inspect.getsource(tools.memory_init)
+        from code_review_graph.memory.commands import run_memory_init_pipeline
+        src = inspect.getsource(run_memory_init_pipeline)
         assert "classify_features" in src or "classify_modules" in src
 
     def test_memory_prepare_context_delegates_to_builder(self):
@@ -519,3 +526,206 @@ class TestExistingToolsRegression:
         result = get_docs_section("nonexistent-section")
         # Should return not_found, not crash
         assert result["status"] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: MCP memory_init parity with CLI — rules files + CLAUDE.md
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryInitParity:
+    """MCP memory_init must produce the same artifacts as CLI memory init."""
+
+    def test_mcp_generates_conventions_md(self, tmp_path):
+        """MCP path must write rules/conventions.md (was missing before fix)."""
+        from code_review_graph.tools import memory_init
+        repo = make_repo(tmp_path)
+        memory_init(repo_root=str(repo))
+        assert (repo / ".agent-memory" / "rules" / "conventions.md").exists()
+
+    def test_mcp_generates_safe_boundaries_md(self, tmp_path):
+        """MCP path must write rules/safe-boundaries.md (was missing before fix)."""
+        from code_review_graph.tools import memory_init
+        repo = make_repo(tmp_path)
+        memory_init(repo_root=str(repo))
+        assert (repo / ".agent-memory" / "rules" / "safe-boundaries.md").exists()
+
+    def test_mcp_generates_claude_md(self, tmp_path):
+        """MCP path must write CLAUDE.md for automatic Claude Code pickup."""
+        from code_review_graph.tools import memory_init
+        repo = make_repo(tmp_path)
+        memory_init(repo_root=str(repo))
+        assert (repo / ".agent-memory" / "CLAUDE.md").exists()
+
+    def test_mcp_claude_md_contains_repo_name(self, tmp_path):
+        from code_review_graph.tools import memory_init
+        repo = make_repo(tmp_path)
+        memory_init(repo_root=str(repo))
+        content = (repo / ".agent-memory" / "CLAUDE.md").read_text()
+        assert "Repo memory" in content
+
+    def test_mcp_artifacts_written_includes_rules(self, tmp_path):
+        from code_review_graph.tools import memory_init
+        repo = make_repo(tmp_path)
+        result = memory_init(repo_root=str(repo))
+        keys = set(result["artifacts_written"].keys())
+        assert ".agent-memory/rules/conventions.md" in keys
+        assert ".agent-memory/rules/safe-boundaries.md" in keys
+
+    def test_mcp_artifacts_written_includes_claude_md(self, tmp_path):
+        from code_review_graph.tools import memory_init
+        repo = make_repo(tmp_path)
+        result = memory_init(repo_root=str(repo))
+        assert ".agent-memory/CLAUDE.md" in result["artifacts_written"]
+
+    def test_mcp_applies_overrides(self, tmp_path):
+        """When overrides/global.yaml exists, MCP init must apply it."""
+        from code_review_graph.tools import memory_init
+        repo = make_repo(tmp_path)
+        # Write a real override file
+        overrides_dir = repo / ".agent-memory" / "overrides"
+        overrides_dir.mkdir(parents=True, exist_ok=True)
+        (overrides_dir / "global.yaml").write_text(
+            "notes:\n  - Custom team note for MCP test\n",
+            encoding="utf-8",
+        )
+        memory_init(repo_root=str(repo))
+        conventions = (repo / ".agent-memory" / "rules" / "conventions.md").read_text()
+        assert "Custom team note for MCP test" in conventions
+
+    def test_cli_and_mcp_produce_same_artifact_keys(self, tmp_path):
+        """CLI and MCP paths must write the same set of artifacts."""
+        import argparse
+        from code_review_graph.memory.commands import memory_init_command
+        from code_review_graph.tools import memory_init
+
+        repo_cli = make_repo(tmp_path / "cli_repo")
+        repo_mcp = make_repo(tmp_path / "mcp_repo")
+
+        args = argparse.Namespace(repo=str(repo_cli))
+        memory_init_command(args)
+        mcp_result = memory_init(repo_root=str(repo_mcp))
+
+        cli_files = sorted(p.relative_to(repo_cli / ".agent-memory")
+                           for p in (repo_cli / ".agent-memory").rglob("*")
+                           if p.is_file())
+        mcp_keys = sorted(
+            k.replace(".agent-memory/", "") for k in mcp_result["artifacts_written"]
+        )
+
+        # Every artifact written by MCP must exist on disk from CLI too
+        for key in mcp_keys:
+            assert any(str(f) == key for f in cli_files), (
+                f"MCP artifact '{key}' not found among CLI artifacts"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: Automatic refresh wired into update
+# ---------------------------------------------------------------------------
+
+
+class TestAutomaticRefreshWiring:
+    """incremental_update must be called with refresh_memory=True from cli.py."""
+
+    def test_update_command_passes_refresh_memory(self):
+        """cli.py update command source must include refresh_memory=True."""
+        import inspect
+        from code_review_graph import cli
+        src = inspect.getsource(cli.main)
+        # The update branch must pass refresh_memory=True
+        assert "refresh_memory=True" in src
+
+    def test_incremental_update_refresh_memory_flag_respected(self, tmp_path):
+        """When refresh_memory=True and .agent-memory/ absent, no error raised."""
+        from code_review_graph.incremental import incremental_update
+        from code_review_graph.graph import GraphStore
+        from code_review_graph.incremental import get_db_path
+
+        repo = make_repo(tmp_path)
+        db_path = get_db_path(repo)
+        store = GraphStore(db_path)
+        try:
+            # No .agent-memory/ — should silently skip, not raise
+            result = incremental_update(
+                repo, store, changed_files=[], refresh_memory=True
+            )
+            assert isinstance(result, dict)
+        finally:
+            store.close()
+
+    def test_maybe_refresh_memory_noop_when_no_agent_memory(self, tmp_path):
+        """_maybe_refresh_memory must not raise when .agent-memory/ is absent."""
+        from code_review_graph.incremental import _maybe_refresh_memory
+        repo = make_repo(tmp_path)
+        assert not (repo / ".agent-memory").exists()
+        # Must complete without raising
+        _maybe_refresh_memory(repo, [])
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: generate_claude_memory_doc
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateClaudeMemoryDoc:
+    def test_returns_str(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        scan = scan_repo(make_repo(tmp_path))
+        result = generate_claude_memory_doc(scan)
+        assert isinstance(result, str)
+
+    def test_contains_header(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        scan = scan_repo(make_repo(tmp_path))
+        content = generate_claude_memory_doc(scan)
+        assert "Repo memory" in content
+
+    def test_contains_stack_section(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        scan = scan_repo(make_repo(tmp_path))
+        content = generate_claude_memory_doc(scan)
+        assert "Stack" in content or "Languages" in content
+
+    def test_includes_override_notes(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        from code_review_graph.memory.overrides import Overrides
+        scan = scan_repo(make_repo(tmp_path))
+        overrides = Overrides(notes=["Use the custom auth library"])
+        content = generate_claude_memory_doc(scan, overrides)
+        assert "custom auth library" in content
+
+    def test_includes_never_edit_from_overrides(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        from code_review_graph.memory.overrides import Overrides
+        scan = scan_repo(make_repo(tmp_path))
+        overrides = Overrides(never_edit=["src/vendor/"])
+        content = generate_claude_memory_doc(scan, overrides)
+        assert "vendor" in content
+
+    def test_deterministic(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        scan = scan_repo(make_repo(tmp_path))
+        assert generate_claude_memory_doc(scan) == generate_claude_memory_doc(scan)
+
+    def test_task_hints_included(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        from code_review_graph.memory.overrides import Overrides, TaskHint
+        scan = scan_repo(make_repo(tmp_path))
+        overrides = Overrides(task_hints=[TaskHint(pattern="add endpoint", hint="Use src/api/")])
+        content = generate_claude_memory_doc(scan, overrides)
+        assert "add endpoint" in content
+
+    def test_no_overrides_does_not_crash(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        from code_review_graph.memory.scanner import scan_repo
+        scan = scan_repo(make_repo(tmp_path))
+        content = generate_claude_memory_doc(scan, None)
+        assert len(content) > 0

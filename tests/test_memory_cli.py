@@ -297,7 +297,8 @@ class TestMemoryAnnotate:
     def test_runs_without_error(self, tmp_path):
         out = run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
         assert "annotate" in out
-        assert "not yet implemented" in out
+        # Stub message has been replaced with real implementation
+        assert "not yet implemented" not in out
 
     def test_shows_overrides_dir(self, tmp_path):
         out = run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
@@ -352,3 +353,155 @@ class TestExistingCommandsUnaffected:
     def test_install_help(self):
         out = run_cli_stdout("install", "--help")
         assert "install" in out
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: CLI memory init generates rules files and CLAUDE.md
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_repo(tmp_path):
+    files = {
+        "pyproject.toml": "[project]\nname='testrepo'",
+        "src/auth/__init__.py": "",
+        "src/auth/login.py": "def login(): pass",
+        "tests/test_auth.py": "def test_login(): pass",
+    }
+    for rel, content in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    return tmp_path
+
+
+class TestMemoryInitArtifacts:
+    """CLI memory init must produce rules/* and CLAUDE.md."""
+
+    def test_generates_conventions_md(self, tmp_path):
+        run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        assert (tmp_path / ".agent-memory" / "rules" / "conventions.md").exists()
+
+    def test_generates_safe_boundaries_md(self, tmp_path):
+        run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        assert (tmp_path / ".agent-memory" / "rules" / "safe-boundaries.md").exists()
+
+    def test_generates_claude_md(self, tmp_path):
+        run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        assert (tmp_path / ".agent-memory" / "CLAUDE.md").exists()
+
+    def test_claude_md_has_content(self, tmp_path):
+        run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        content = (tmp_path / ".agent-memory" / "CLAUDE.md").read_text()
+        assert len(content) > 50
+        assert "Repo memory" in content
+
+    def test_output_mentions_claude_md(self, tmp_path):
+        out = run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        assert "CLAUDE.md" in out
+
+    def test_output_mentions_conventions(self, tmp_path):
+        out = run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        assert "conventions" in out
+
+    def test_output_mentions_safe_boundaries(self, tmp_path):
+        out = run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        assert "safe-boundaries" in out
+
+    def test_idempotent_second_run(self, tmp_path):
+        """Running init twice must not crash and second run should show unchanged."""
+        run_cli_stdout("memory", "init", "--repo", str(_make_minimal_repo(tmp_path)))
+        out2 = run_cli_stdout("memory", "init", "--repo", str(tmp_path))
+        assert "unchanged" in out2
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: memory annotate implementation
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryAnnotateImplemented:
+    """memory annotate must scaffold global.yaml and respect existing edits."""
+
+    def test_creates_global_yaml(self, tmp_path):
+        run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
+        assert (tmp_path / ".agent-memory" / "overrides" / "global.yaml").exists()
+
+    def test_global_yaml_has_template_content(self, tmp_path):
+        run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
+        content = (tmp_path / ".agent-memory" / "overrides" / "global.yaml").read_text()
+        assert "always_include" in content
+        assert "never_edit" in content
+        assert "task_hints" in content
+
+    def test_does_not_overwrite_existing_edits(self, tmp_path):
+        """Running annotate twice must not overwrite user edits."""
+        override_path = tmp_path / ".agent-memory" / "overrides" / "global.yaml"
+        override_path.parent.mkdir(parents=True, exist_ok=True)
+        override_path.write_text("never_edit:\n  - migrations/\n", encoding="utf-8")
+
+        run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
+
+        content = override_path.read_text()
+        assert "migrations/" in content  # human edit preserved
+        # Template content should NOT have been written (file already existed)
+        assert "always_include" not in content
+
+    def test_output_includes_file_path(self, tmp_path):
+        out = run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
+        assert "global.yaml" in out
+
+    def test_output_says_created_on_first_run(self, tmp_path):
+        out = run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
+        assert "Created" in out or "created" in out
+
+    def test_output_says_preserved_on_second_run(self, tmp_path):
+        run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
+        out2 = run_cli_stdout("memory", "annotate", "--repo", str(tmp_path))
+        assert "preserved" in out2 or "already exists" in out2.lower()
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: changes/recent.md surfaced in memory changed
+# ---------------------------------------------------------------------------
+
+
+class TestChangedSurfacesRecentMd:
+    """memory changed must incorporate changes/recent.md when it exists."""
+
+    def test_includes_recent_md_content_for_matching_area(self, tmp_path):
+        from code_review_graph.memory.lookup import changed_match, match_target
+        from code_review_graph.memory.scanner import scan_repo
+        from code_review_graph.memory.classifier import classify_features, classify_modules
+
+        repo = _make_minimal_repo(tmp_path)
+        agent_memory = repo / ".agent-memory"
+        changes_dir = agent_memory / "changes"
+        changes_dir.mkdir(parents=True, exist_ok=True)
+        (changes_dir / "recent.md").write_text(
+            "## Recent changes\n- auth/login.py: fixed token expiry bug\n",
+            encoding="utf-8",
+        )
+
+        scan = scan_repo(repo)
+        features = classify_features(repo, scan)
+        modules = classify_modules(repo, scan)
+        match = match_target("auth", agent_memory, features, modules)
+        output = changed_match(match, agent_memory)
+        assert "recent.md" in output.lower() or "login.py" in output or "token" in output
+
+    def test_no_crash_when_recent_md_absent(self, tmp_path):
+        from code_review_graph.memory.lookup import changed_match, match_target
+        from code_review_graph.memory.scanner import scan_repo
+        from code_review_graph.memory.classifier import classify_features, classify_modules
+
+        repo = _make_minimal_repo(tmp_path)
+        agent_memory = repo / ".agent-memory"
+        agent_memory.mkdir(parents=True, exist_ok=True)
+
+        scan = scan_repo(repo)
+        features = classify_features(repo, scan)
+        modules = classify_modules(repo, scan)
+        match = match_target("auth", agent_memory, features, modules)
+        # Must not raise even without recent.md or freshness.json
+        output = changed_match(match, agent_memory)
+        assert isinstance(output, str)

@@ -422,7 +422,7 @@ def main() -> None:
                 print(f"Errors: {len(result['errors'])}")
 
         elif args.command == "update":
-            result = incremental_update(repo_root, store, base=args.base)
+            result = incremental_update(repo_root, store, base=args.base, refresh_memory=True)
             print(
                 f"Incremental: {result['files_updated']} files updated, "
                 f"{result['total_nodes']} nodes, {result['total_edges']} edges"

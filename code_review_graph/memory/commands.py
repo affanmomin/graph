@@ -40,113 +40,189 @@ def _agent_memory_root(repo_root: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def memory_init_command(args: argparse.Namespace) -> None:
-    """Scan repo and generate initial ``.agent-memory/`` artifacts.
+_GLOBAL_YAML_TEMPLATE = """\
+# .agent-memory/overrides/global.yaml
+# Human override file for repo-memory. Edit freely — this file is never auto-overwritten.
+#
+# always_include  paths always surfaced in context packs regardless of task
+# never_edit      paths Claude should never suggest modifying
+# notes           free-text domain knowledge added to rules/conventions.md
+# task_hints      pattern-matched hints surfaced when task description matches
+
+# always_include:
+#   - src/auth/middleware.py
+#   - docs/architecture.md
+
+# never_edit:
+#   - migrations/
+#   - src/vendor/
+
+# notes:
+#   - The auth module uses a custom JWT library (not PyJWT)
+#   - All API handlers must validate with the shared RequestValidator
+
+# task_hints:
+#   - pattern: "add endpoint"
+#     hint: "Register new routes in src/api/router.py and add a test in tests/api/"
+#   - pattern: "database migration"
+#     hint: "Use alembic revision --autogenerate; never edit existing migrations"
+"""
+
+
+def run_memory_init_pipeline(root: Path) -> dict:
+    """Execute the full memory init pipeline and return structured results.
+
+    This is the single shared implementation called by both the CLI command
+    handler (:func:`memory_init_command`) and the MCP tool adapter
+    (``tools.memory_init``).  Keeping logic here ensures both surfaces always
+    produce identical output.
 
     Pipeline: scanner → classifier → generator → writer → metadata.
-    Generates repo.md, architecture.md, features/*.md, modules/*.md,
-    and metadata/manifest.json + sources.json + confidence.json.
-    """
-    import logging
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+    Generates:
+      - repo.md, architecture.md
+      - features/<slug>.md (one per detected feature)
+      - modules/<slug>.md  (one per detected module)
+      - rules/conventions.md, rules/safe-boundaries.md
+      - CLAUDE.md (compact session bootstrap for Claude Code)
+      - metadata/manifest.json, sources.json, confidence.json
 
+    Args:
+        root: Absolute path to the repository root.
+
+    Returns:
+        Dict with keys: ``scan``, ``features``, ``modules``, ``dirs``,
+        ``artifacts``, ``write_statuses``, ``feature_statuses``,
+        ``module_statuses``.
+    """
     from .classifier import classify_features, classify_modules
     from .generator import (  # noqa: I001
         generate_repo_summary, generate_architecture_doc,
         generate_feature_doc, generate_module_doc,
         generate_conventions_doc, generate_safe_boundaries_doc,
+        generate_claude_memory_doc,
     )
     from .metadata import generate_manifest, save_manifest, save_sources_json, save_confidence_json
     from .overrides import load_overrides
     from .scanner import scan_repo
     from .writer import ensure_memory_dirs, write_text_if_changed
 
-    repo_root = _resolve_repo_root(args)
-    print(f"repo-memory: init")
-    print(f"  scanning {repo_root} ...")
-
     # 1. Scan
-    scan = scan_repo(repo_root)
+    scan = scan_repo(root)
 
     # 2. Classify features and modules (deterministic, no LLMs)
-    features = classify_features(repo_root, scan)
-    modules = classify_modules(repo_root, scan)
+    features = classify_features(root, scan)
+    modules = classify_modules(root, scan)
 
     # 3. Ensure directory tree
-    dirs = ensure_memory_dirs(repo_root)
+    dirs = ensure_memory_dirs(root)
 
-    # 4. Generate and write top-level artifacts
     artifacts: list[dict] = []
+    write_statuses: dict[str, str] = {}
 
-    repo_md_path = dirs["root"] / "repo.md"
-    s_repo = write_text_if_changed(repo_md_path, generate_repo_summary(scan))
-    artifacts.append({
-        "artifact_id": "repo",
-        "artifact_type": "repo",
-        "relative_path": ".agent-memory/repo.md",
-    })
+    # 4. Top-level docs
+    write_statuses[".agent-memory/repo.md"] = write_text_if_changed(
+        dirs["root"] / "repo.md", generate_repo_summary(scan)
+    )
+    artifacts.append({"artifact_id": "repo", "artifact_type": "repo",
+                       "relative_path": ".agent-memory/repo.md"})
 
-    arch_md_path = dirs["root"] / "architecture.md"
-    s_arch = write_text_if_changed(arch_md_path, generate_architecture_doc(scan))
-    artifacts.append({
-        "artifact_id": "architecture",
-        "artifact_type": "architecture",
-        "relative_path": ".agent-memory/architecture.md",
-    })
+    write_statuses[".agent-memory/architecture.md"] = write_text_if_changed(
+        dirs["root"] / "architecture.md", generate_architecture_doc(scan)
+    )
+    artifacts.append({"artifact_id": "architecture", "artifact_type": "architecture",
+                       "relative_path": ".agent-memory/architecture.md"})
 
-    # 5. Write feature docs
+    # 5. Feature docs
     feature_statuses: list[tuple[str, str]] = []
     for feature in features:
         slug = feature.slug()
         rel = f".agent-memory/features/{slug}.md"
-        path = dirs["features"] / f"{slug}.md"
-        st = write_text_if_changed(path, generate_feature_doc(feature))
+        st = write_text_if_changed(dirs["features"] / f"{slug}.md", generate_feature_doc(feature))
+        write_statuses[rel] = st
         feature_statuses.append((rel, st))
-        artifacts.append({
-            "artifact_id": f"feature:{slug}",
-            "artifact_type": "feature",
-            "relative_path": rel,
-        })
+        artifacts.append({"artifact_id": f"feature:{slug}", "artifact_type": "feature",
+                           "relative_path": rel})
 
-    # 6. Write module docs
+    # 6. Module docs
     module_statuses: list[tuple[str, str]] = []
     for module in modules:
         slug = module.slug()
         rel = f".agent-memory/modules/{slug}.md"
-        path = dirs["modules"] / f"{slug}.md"
-        st = write_text_if_changed(path, generate_module_doc(module))
+        st = write_text_if_changed(dirs["modules"] / f"{slug}.md", generate_module_doc(module))
+        write_statuses[rel] = st
         module_statuses.append((rel, st))
-        artifacts.append({
-            "artifact_id": f"module:{slug}",
-            "artifact_type": "module",
-            "relative_path": rel,
-        })
+        artifacts.append({"artifact_id": f"module:{slug}", "artifact_type": "module",
+                           "relative_path": rel})
 
     # 7. Load overrides and write rule docs
     overrides = load_overrides(dirs["root"])
-    conv_path = dirs["rules"] / "conventions.md"
-    s_conv = write_text_if_changed(conv_path, generate_conventions_doc(scan, overrides))
-    artifacts.append({
-        "artifact_id": "rules:conventions",
-        "artifact_type": "rules",
-        "relative_path": ".agent-memory/rules/conventions.md",
-    })
 
-    sb_path = dirs["rules"] / "safe-boundaries.md"
-    s_sb = write_text_if_changed(sb_path, generate_safe_boundaries_doc(scan, overrides))
-    artifacts.append({
-        "artifact_id": "rules:safe-boundaries",
-        "artifact_type": "rules",
-        "relative_path": ".agent-memory/rules/safe-boundaries.md",
-    })
+    rel_conv = ".agent-memory/rules/conventions.md"
+    write_statuses[rel_conv] = write_text_if_changed(
+        dirs["rules"] / "conventions.md", generate_conventions_doc(scan, overrides)
+    )
+    artifacts.append({"artifact_id": "rules:conventions", "artifact_type": "rules",
+                       "relative_path": rel_conv})
 
-    # 8. Write metadata
+    rel_sb = ".agent-memory/rules/safe-boundaries.md"
+    write_statuses[rel_sb] = write_text_if_changed(
+        dirs["rules"] / "safe-boundaries.md", generate_safe_boundaries_doc(scan, overrides)
+    )
+    artifacts.append({"artifact_id": "rules:safe-boundaries", "artifact_type": "rules",
+                       "relative_path": rel_sb})
+
+    # 8. CLAUDE.md — compact session bootstrap for Claude Code
+    rel_claude = ".agent-memory/CLAUDE.md"
+    write_statuses[rel_claude] = write_text_if_changed(
+        dirs["root"] / "CLAUDE.md", generate_claude_memory_doc(scan, overrides)
+    )
+    artifacts.append({"artifact_id": "claude-md", "artifact_type": "claude-md",
+                       "relative_path": rel_claude})
+
+    # 9. Metadata
     manifest = generate_manifest(scan, artifacts)
-    s_manifest = save_manifest(manifest, dirs["metadata"])
-    s_sources = save_sources_json(features, modules, dirs["metadata"])
-    s_confidence = save_confidence_json(features, modules, dirs["metadata"])
+    write_statuses[".agent-memory/metadata/manifest.json"] = save_manifest(manifest, dirs["metadata"])
+    write_statuses[".agent-memory/metadata/sources.json"] = save_sources_json(
+        features, modules, dirs["metadata"]
+    )
+    write_statuses[".agent-memory/metadata/confidence.json"] = save_confidence_json(
+        features, modules, dirs["metadata"]
+    )
 
-    # 9. Summary output
+    return {
+        "scan": scan,
+        "features": features,
+        "modules": modules,
+        "dirs": dirs,
+        "artifacts": artifacts,
+        "write_statuses": write_statuses,
+        "feature_statuses": feature_statuses,
+        "module_statuses": module_statuses,
+    }
+
+
+def memory_init_command(args: argparse.Namespace) -> None:
+    """Scan repo and generate initial ``.agent-memory/`` artifacts.
+
+    Delegates all logic to :func:`run_memory_init_pipeline` so the CLI and
+    MCP tool always produce identical output.
+    """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+    repo_root = _resolve_repo_root(args)
+    print(f"repo-memory: init")
+    print(f"  scanning {repo_root} ...")
+
+    result = run_memory_init_pipeline(repo_root)
+
+    scan = result["scan"]
+    features = result["features"]
+    modules = result["modules"]
+    write_statuses = result["write_statuses"]
+    feature_statuses = result["feature_statuses"]
+    module_statuses = result["module_statuses"]
+
     print()
     print(f"  languages   : {', '.join(scan.languages) or 'none detected'}")
     print(f"  frameworks  : {', '.join(scan.framework_hints) or 'none detected'}")
@@ -156,17 +232,18 @@ def memory_init_command(args: argparse.Namespace) -> None:
     print(f"  features    : {len(features)}")
     print(f"  modules     : {len(modules)}")
     print()
-    print(f"  .agent-memory/repo.md              [{s_repo}]")
-    print(f"  .agent-memory/architecture.md      [{s_arch}]")
+    print(f"  .agent-memory/repo.md              [{write_statuses['.agent-memory/repo.md']}]")
+    print(f"  .agent-memory/architecture.md      [{write_statuses['.agent-memory/architecture.md']}]")
     for rel, st in feature_statuses:
         print(f"  {rel} [{st}]")
     for rel, st in module_statuses:
         print(f"  {rel} [{st}]")
-    print(f"  .agent-memory/rules/conventions.md         [{s_conv}]")
-    print(f"  .agent-memory/rules/safe-boundaries.md     [{s_sb}]")
-    print(f"  .agent-memory/metadata/manifest.json       [{s_manifest}]")
-    print(f"  .agent-memory/metadata/sources.json        [{s_sources}]")
-    print(f"  .agent-memory/metadata/confidence.json     [{s_confidence}]")
+    print(f"  .agent-memory/rules/conventions.md     [{write_statuses['.agent-memory/rules/conventions.md']}]")
+    print(f"  .agent-memory/rules/safe-boundaries.md [{write_statuses['.agent-memory/rules/safe-boundaries.md']}]")
+    print(f"  .agent-memory/CLAUDE.md                [{write_statuses['.agent-memory/CLAUDE.md']}]")
+    print(f"  .agent-memory/metadata/manifest.json   [{write_statuses['.agent-memory/metadata/manifest.json']}]")
+    print(f"  .agent-memory/metadata/sources.json    [{write_statuses['.agent-memory/metadata/sources.json']}]")
+    print(f"  .agent-memory/metadata/confidence.json [{write_statuses['.agent-memory/metadata/confidence.json']}]")
     print()
     if scan.notes:
         print("  Notes:")
@@ -426,28 +503,47 @@ def memory_changed_command(args: argparse.Namespace) -> None:
 
 
 def memory_annotate_command(args: argparse.Namespace) -> None:
-    """Open or create the human override file for ``.agent-memory/overrides/``.
+    """Create (if absent) and open the global human override file.
 
-    Override files let developers correct and constrain generated memory —
-    marking files that must always be included, paths that must never be
-    edited, and task-specific hints.
+    Scaffolds ``.agent-memory/overrides/global.yaml`` with a commented template
+    on first run.  On subsequent runs the file is left unchanged (human edits
+    are never overwritten).
 
-    TODO(T7): scaffold the override YAML file and open it in $EDITOR.
+    If ``$EDITOR`` is set the file is opened in the configured editor.
+    Otherwise the file path is printed with brief usage instructions.
     """
+    import os
+    import subprocess
+
+    from .writer import write_override_if_absent
+
     repo_root = _resolve_repo_root(args)
     agent_memory = _agent_memory_root(repo_root)
-    overrides_dir = agent_memory / "overrides"
+    override_path = agent_memory / "overrides" / "global.yaml"
 
-    print(f"repo-memory: annotate")
+    print("repo-memory: annotate")
     print(f"  repo root     : {repo_root}")
-    print(f"  overrides dir : {overrides_dir}")
+    print(f"  override file : {override_path}")
     print()
-    print("  [not yet implemented]")
-    print("  Will scaffold .agent-memory/overrides/rules.yaml and open it")
-    print("  in your $EDITOR for human correction and guidance.")
+
+    status = write_override_if_absent(override_path, _GLOBAL_YAML_TEMPLATE)
+    if status == "created":
+        print("  Created override scaffold.")
+    else:
+        print("  Override file already exists — human edits preserved.")
     print()
-    print("  Override format (coming soon):")
-    print("    always_include: [src/auth/middleware.py]")
-    print("    never_edit:     [migrations/]")
-    print("    notes:          ['The auth module uses a custom JWT library.']")
-    print("    task_hints:     [{pattern: 'add endpoint', hint: '...'}]")
+
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+    if editor:
+        print(f"  Opening in {editor} ...")
+        try:
+            subprocess.run([editor, str(override_path)], check=False)
+        except FileNotFoundError:
+            print(f"  Warning: editor '{editor}' not found.")
+            print(f"  Edit manually: {override_path}")
+    else:
+        print(f"  Edit the file to add domain knowledge and task hints:")
+        print(f"    {override_path}")
+        print()
+        print("  Then re-run `memory init` to regenerate rules/conventions.md")
+        print("  with your overrides applied.")

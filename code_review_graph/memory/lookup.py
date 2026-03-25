@@ -276,7 +276,10 @@ def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
         lines.append(
             "  No refresh data found. Run `memory refresh` to track changes."
         )
+        # Still surface recent.md if it was written by some other means
+        _append_recent_md_lines(lines, agent_memory_root, match)
         if match.alternatives:
+            lines.append("")
             lines.append(f"  Similar areas: {', '.join(match.alternatives)}")
         return "\n".join(lines)
 
@@ -328,6 +331,8 @@ def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
         for a in area_artifacts:
             lines.append(f"    - {a}")
 
+    _append_recent_md_lines(lines, agent_memory_root, match, area_files=area_files)
+
     if match.stale:
         lines.append("")
         lines.append("  ⚠  Memory may be stale — run `memory refresh`.")
@@ -342,6 +347,53 @@ def changed_match(match: TargetMatch, agent_memory_root: Path) -> str:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _append_recent_md_lines(
+    lines: list[str],
+    agent_memory_root: Path,
+    match: "TargetMatch",
+    area_files: list[str] | None = None,
+) -> None:
+    """Read ``changes/recent.md`` and append relevant lines to *lines*.
+
+    Filters recent.md content to lines that mention the matched area (by name,
+    slug, or a file that belongs to it).  Falls back to showing a short
+    summary when no area-specific lines are found and *area_files* is empty.
+    """
+    recent_md = agent_memory_root / "changes" / "recent.md"
+    if not recent_md.exists():
+        return
+    try:
+        recent_content = recent_md.read_text(encoding="utf-8", errors="replace").strip()
+        if not recent_content:
+            return
+
+        obj = match.obj
+        area_tokens = {match.name.lower(), match.slug.lower()}
+        if obj is not None:
+            for fp in getattr(obj, "files", []):
+                area_tokens.add(fp.lower())
+                area_tokens.add(fp.rsplit("/", 1)[-1].lower())
+
+        relevant: list[str] = [
+            ln for ln in recent_content.splitlines()
+            if any(tok and tok in ln.lower() for tok in area_tokens)
+        ]
+
+        if relevant:
+            lines.append("")
+            lines.append("  Recent changes (from changes/recent.md):")
+            for ln in relevant[:10]:
+                lines.append(f"    {ln}")
+        elif not area_files:
+            # Nothing file-level either — show a short unfiltered summary
+            lines.append("")
+            lines.append("  Recent changes summary:")
+            for ln in recent_content.splitlines()[:15]:
+                lines.append(f"    {ln}")
+    except OSError:
+        pass
 
 
 def _make_match(

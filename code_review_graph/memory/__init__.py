@@ -32,9 +32,12 @@ from .classifier import classify_features, classify_modules
 from .context_builder import build_context_pack
 from .generator import (
     generate_architecture_doc,
+    generate_claude_memory_doc,
+    generate_conventions_doc,
     generate_feature_doc,
     generate_module_doc,
     generate_repo_summary,
+    generate_safe_boundaries_doc,
 )
 from .writer import (
     MEMORY_SUBDIRS,
@@ -54,9 +57,12 @@ __all__ = [
     "build_context_pack",
     # generator
     "generate_architecture_doc",
+    "generate_claude_memory_doc",
+    "generate_conventions_doc",
     "generate_feature_doc",
     "generate_module_doc",
     "generate_repo_summary",
+    "generate_safe_boundaries_doc",
     # models
     "ArtifactMetadata",
     "FeatureMemory",
