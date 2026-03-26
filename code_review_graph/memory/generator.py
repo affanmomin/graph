@@ -31,6 +31,7 @@ from .scanner import RepoScan
 from .writer import render_markdown_section
 
 if TYPE_CHECKING:
+    from .graph_bridge import FileNodeSummary
     from .overrides import Overrides
 
 # Shared preamble for auto-generated files
@@ -370,11 +371,17 @@ def _render_inspect_first(scan: RepoScan) -> str:
 def generate_feature_doc(
     feature: FeatureMemory,
     vocabulary: dict[str, list[str]] | None = None,
+    node_summaries: "dict[str, FileNodeSummary] | None" = None,
 ) -> str:
     """Generate content for ``.agent-memory/features/<slug>.md``.
 
     Args:
-        feature: A classified :class:`~models.FeatureMemory` instance.
+        feature:        A classified :class:`~models.FeatureMemory` instance.
+        vocabulary:     Optional dict of file_path → symbol names from the graph.
+                        Used for responsibility inference and key symbol listing.
+        node_summaries: Optional dict of file_path → :class:`FileNodeSummary`.
+                        When present, purpose statements are grounded in actual
+                        class/function names rather than inferred from file stems.
 
     Returns:
         Markdown string ready to be written to disk by ``writer.py``.
@@ -389,10 +396,10 @@ def generate_feature_doc(
         f"**Confidence**: {feature.confidence:.0%} ({confidence_note})"
     )
 
-    # Purpose — inferred from name and rationale
+    # Purpose — grounded in actual symbols when graph data is available
     sections.append(render_markdown_section(
         "Purpose",
-        _feature_purpose(feature),
+        _feature_purpose(feature, vocabulary=vocabulary, node_summaries=node_summaries),
     ))
 
     # Main files
@@ -410,8 +417,8 @@ def generate_feature_doc(
                 ", ".join(f"`{s}`" for s in key_symbols),
             ))
 
-    # Likely entry points — first file alphabetically that isn't a model/schema
-    entry_points = _infer_entry_points(feature.files)
+    # Likely entry points — stem matching + vocabulary-aware detection
+    entry_points = _infer_entry_points(feature.files, vocabulary=vocabulary)
     if entry_points:
         sections.append(render_markdown_section(
             "Likely entry points",
@@ -451,11 +458,17 @@ def generate_feature_doc(
 def generate_module_doc(
     module: ModuleMemory,
     vocabulary: dict[str, list[str]] | None = None,
+    node_summaries: "dict[str, FileNodeSummary] | None" = None,
 ) -> str:
     """Generate content for ``.agent-memory/modules/<slug>.md``.
 
     Args:
-        module: A classified :class:`~models.ModuleMemory` instance.
+        module:         A classified :class:`~models.ModuleMemory` instance.
+        vocabulary:     Optional dict of file_path → symbol names from the graph.
+                        Used for responsibility inference and key symbol listing.
+        node_summaries: Optional dict of file_path → :class:`FileNodeSummary`.
+                        When present, purpose statements are grounded in actual
+                        class/function names rather than inferred from file stems.
 
     Returns:
         Markdown string ready to be written to disk by ``writer.py``.
@@ -470,10 +483,10 @@ def generate_module_doc(
         f"**Confidence**: {module.confidence:.0%} ({confidence_note})"
     )
 
-    # Purpose
+    # Purpose — grounded in actual symbols when graph data is available
     sections.append(render_markdown_section(
         "Purpose",
-        _module_purpose(module),
+        _module_purpose(module, vocabulary=vocabulary, node_summaries=node_summaries),
     ))
 
     # Responsibilities — from graph vocabulary first, file stems as fallback
@@ -535,9 +548,30 @@ def generate_module_doc(
 # ---------------------------------------------------------------------------
 
 
-def _feature_purpose(feature: FeatureMemory) -> str:
-    """Produce a one-line purpose statement for a feature doc."""
+def _feature_purpose(
+    feature: FeatureMemory,
+    vocabulary: dict[str, list[str]] | None = None,
+    node_summaries: "dict[str, FileNodeSummary] | None" = None,
+) -> str:
+    """Produce a purpose statement for a feature doc.
+
+    Priority:
+    1. node_summaries present → class/function names separated, most informative.
+    2. vocabulary present → flat top symbols, still graph-grounded.
+    3. Fallback → path/name heuristic only.
+    """
     name = feature.name
+    if node_summaries:
+        classes, functions = _collect_symbols_from_summaries(node_summaries, feature.files)
+        if classes or functions:
+            return _format_purpose_with_symbols(
+                f"Implements the **{name}** product area", classes, functions
+            )
+    if vocabulary:
+        top_syms = _top_symbols(vocabulary, feature.files, max_total=5)
+        if top_syms:
+            sym_str = ", ".join(f"`{s}`" for s in top_syms)
+            return f"Implements the **{name}** product area. Key symbols: {sym_str}."
     source = _classification_source(feature.confidence)
     return (
         f"Implements the **{name}** product area "
@@ -564,18 +598,102 @@ def _feature_warnings(feature: FeatureMemory) -> str:
     return "\n".join(f"- {line}" for line in lines)
 
 
-def _infer_entry_points(files: list[str]) -> list[str]:
-    """Return files likely to be entry points (routes, views, controllers, main)."""
-    priority_stems = {
-        "main", "app", "index", "server", "router", "routes",
-        "views", "view", "controller", "controllers", "handler", "handlers",
-        "api", "endpoint", "endpoints",
-    }
-    result = [
-        f for f in files
-        if Path(f).stem.lower() in priority_stems
-    ]
+# File stems strongly associated with entry points
+_ENTRY_POINT_STEMS = frozenset({
+    "main", "app", "index", "server", "router", "routes",
+    "views", "view", "controller", "controllers", "handler", "handlers",
+    "api", "endpoint", "endpoints",
+})
+
+# Symbol name tokens that suggest an entry point function/class
+_ENTRY_POINT_SYM_TOKENS = frozenset({
+    "handle", "execute", "run", "process", "dispatch",
+    "serve", "setup", "create_app", "make_app",
+})
+
+
+def _infer_entry_points(
+    files: list[str],
+    vocabulary: dict[str, list[str]] | None = None,
+) -> list[str]:
+    """Return files likely to be entry points.
+
+    Strategy 1 (always): file stem matching against known entry-point names.
+    Strategy 2 (with vocabulary): files that define symbols with entry-point
+    token names (e.g. ``handle_request``, ``run_server``), catching files
+    whose stems don't match but whose content clearly acts as an entry point.
+    """
+    result: set[str] = {f for f in files if Path(f).stem.lower() in _ENTRY_POINT_STEMS}
+
+    if vocabulary:
+        for f in files:
+            if f in result:
+                continue
+            for sym in vocabulary.get(f, []):
+                sym_lower = sym.lower()
+                if any(token in sym_lower for token in _ENTRY_POINT_SYM_TOKENS):
+                    result.add(f)
+                    break
+
     return sorted(result)[:5]
+
+
+# ---------------------------------------------------------------------------
+# Shared symbol helpers (used by both feature and module purpose statements)
+# ---------------------------------------------------------------------------
+
+
+def _collect_symbols_from_summaries(
+    node_summaries: "dict[str, FileNodeSummary]",
+    files: list[str],
+    max_classes: int = 3,
+    max_functions: int = 3,
+) -> "tuple[list[str], list[str]]":
+    """Return deduplicated (classes, functions) lists across *files*.
+
+    Iterates over each file's :class:`~graph_bridge.FileNodeSummary`, collecting
+    class and function names in file order.  Deduplicates across files so the
+    same name does not appear twice.  Caps at *max_classes* / *max_functions*.
+    """
+    seen: set[str] = set()
+    classes: list[str] = []
+    functions: list[str] = []
+    for fp in files:
+        ns = node_summaries.get(fp)
+        if ns is None:
+            continue
+        for c in ns.classes:
+            if c not in seen:
+                seen.add(c)
+                classes.append(c)
+        for f in ns.functions:
+            if f not in seen:
+                seen.add(f)
+                functions.append(f)
+    return classes[:max_classes], functions[:max_functions]
+
+
+def _format_purpose_with_symbols(
+    prefix: str,
+    classes: list[str],
+    functions: list[str],
+) -> str:
+    """Compose a purpose statement from separated class and function names.
+
+    Produces output like:
+        "Implements the **auth** product area. Defines ``AuthMiddleware``;
+         provides ``verify_token``, ``login_required``."
+    """
+    if classes and functions:
+        cls_str = ", ".join(f"`{c}`" for c in classes)
+        fn_str = ", ".join(f"`{f}`" for f in functions)
+        return f"{prefix}. Defines {cls_str}; provides {fn_str}."
+    elif classes:
+        cls_str = ", ".join(f"`{c}`" for c in classes)
+        return f"{prefix}. Defines {cls_str}."
+    else:
+        fn_str = ", ".join(f"`{f}`" for f in functions)
+        return f"{prefix}. Provides {fn_str}."
 
 
 # ---------------------------------------------------------------------------
@@ -583,9 +701,30 @@ def _infer_entry_points(files: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _module_purpose(module: ModuleMemory) -> str:
-    """Produce a one-line purpose statement for a module doc."""
+def _module_purpose(
+    module: ModuleMemory,
+    vocabulary: dict[str, list[str]] | None = None,
+    node_summaries: "dict[str, FileNodeSummary] | None" = None,
+) -> str:
+    """Produce a purpose statement for a module doc.
+
+    Priority:
+    1. node_summaries present → class/function names separated, most informative.
+    2. vocabulary present → flat top symbols, still graph-grounded.
+    3. Fallback → path/name heuristic only.
+    """
     name = module.name
+    if node_summaries:
+        classes, functions = _collect_symbols_from_summaries(node_summaries, module.files)
+        if classes or functions:
+            return _format_purpose_with_symbols(
+                f"Provides the **{name}** package", classes, functions
+            )
+    if vocabulary:
+        top_syms = _top_symbols(vocabulary, module.files, max_total=5)
+        if top_syms:
+            sym_str = ", ".join(f"`{s}`" for s in top_syms)
+            return f"Provides the **{name}** package. Key symbols: {sym_str}."
     source = _classification_source(module.confidence)
     return (
         f"Provides the **{name}** package/module boundary "

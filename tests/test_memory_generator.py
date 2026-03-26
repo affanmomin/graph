@@ -17,7 +17,12 @@ import pytest
 from code_review_graph.memory.generator import (
     generate_feature_doc,
     generate_module_doc,
+    _collect_symbols_from_summaries,
+    _feature_purpose,
+    _format_purpose_with_symbols,
+    _infer_entry_points,
     _infer_responsibilities,
+    _module_purpose,
     _responsibilities_from_vocabulary,
     _top_symbols,
 )

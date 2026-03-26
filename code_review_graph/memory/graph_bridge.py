@@ -331,6 +331,91 @@ def get_file_vocabulary(
 
 
 # ---------------------------------------------------------------------------
+# Structured file node summaries
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FileNodeSummary:
+    """Structured symbol summary for a single source file.
+
+    Separates class names from function/method names so generators can
+    produce purpose statements grounded in actual code structure (e.g.
+    "Defines ``AuthMiddleware``; provides ``verify_token``, ``login_required``")
+    instead of inferring from file stems alone.
+
+    Attributes:
+        classes:     Public class names defined in this file.
+        functions:   Public function/method names defined in this file.
+        total_nodes: Total non-File, non-Import nodes found in this file.
+    """
+
+    classes: list[str] = field(default_factory=list)
+    functions: list[str] = field(default_factory=list)
+    total_nodes: int = 0
+
+
+def get_file_node_summary(
+    files: list[str],
+    repo_root: str | Path,
+    max_classes: int = 8,
+    max_functions: int = 10,
+) -> dict[str, "FileNodeSummary"]:
+    """Return structured class/function summaries per file from the graph.
+
+    Opens ``graph.db`` once and processes all requested files.  For each
+    file, nodes are split into Class nodes and Function/Method nodes.
+    Private symbols (names starting with ``_``) and names shorter than 3
+    characters are excluded.
+
+    Args:
+        files:         Repo-relative file paths to look up.
+        repo_root:     Repo root path — locates graph.db.
+        max_classes:   Max class names returned per file (default 8).
+        max_functions: Max function/method names returned per file (default 10).
+
+    Returns:
+        Dict mapping file_path → :class:`FileNodeSummary`.
+        Returns ``{}`` gracefully when graph is absent or any error occurs.
+    """
+    if not files:
+        return {}
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return {}
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return {}
+            summaries: dict[str, FileNodeSummary] = {}
+            for fp in files:
+                nodes = gs.get_nodes_by_file(fp)
+                classes: list[str] = []
+                functions: list[str] = []
+                for n in nodes:
+                    if n.kind in ("File", "Import"):
+                        continue
+                    if not n.name or len(n.name) < 3 or n.name.startswith("_"):
+                        continue
+                    if n.kind == "Class":
+                        classes.append(n.name)
+                    elif n.kind in ("Function", "Method"):
+                        functions.append(n.name)
+                total = len(classes) + len(functions)
+                if total > 0:
+                    summaries[fp] = FileNodeSummary(
+                        classes=classes[:max_classes],
+                        functions=functions[:max_functions],
+                        total_nodes=total,
+                    )
+            return summaries
+    except Exception as exc:
+        logger.debug("get_file_node_summary: graph query failed: %s", exc)
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Explain context
 # ---------------------------------------------------------------------------
 

@@ -70,6 +70,92 @@ _GLOBAL_YAML_TEMPLATE = """\
 """
 
 
+def compute_quality_verdict(
+    features: list,
+    modules: list,
+    graph_used: bool,
+    vocabulary_used: bool,
+) -> dict:
+    """Compute a quality verdict for the memory init output.
+
+    Verdict levels (richest to weakest):
+
+    - **rich**   — graph present, vocabulary enriched, 3+ features or 4+ modules,
+                   avg confidence ≥ 75 %.
+    - **good**   — 2+ features or 3+ modules detected (with or without graph).
+    - **sparse** — some areas detected but missing graph or low confidence.
+    - **weak**   — zero features detected, regardless of graph state.
+
+    Args:
+        features:         Detected :class:`~models.FeatureMemory` list.
+        modules:          Detected :class:`~models.ModuleMemory` list.
+        graph_used:       True when graph.db was available and queried.
+        vocabulary_used:  True when graph vocabulary enriched the artifacts.
+
+    Returns:
+        Dict with keys: ``verdict``, ``message``, ``guidance``,
+        ``avg_confidence``, ``graph_used``, ``vocabulary_used``.
+    """
+    n_features = len(features)
+    n_modules = len(modules)
+    all_items = [*features, *modules]
+    confidences = [item.confidence for item in all_items]
+    avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+    low_conf_count = sum(1 for c in confidences if c < 0.6)
+
+    if n_features == 0 and n_modules <= 1:
+        verdict = "weak"
+        graph_note = "present" if graph_used else "absent"
+        message = f"Weak — 0 features detected. Graph {graph_note}."
+        guidance: list[str] = ["No domain features were detected."]
+        if not graph_used:
+            guidance.append(
+                "Run `repomind build` then `memory init` again for graph-grounded output."
+            )
+        guidance += [
+            "Or add domain knowledge in `.agent-memory/overrides/global.yaml`.",
+            "Ensure source directories follow standard naming (src/, lib/, app/).",
+        ]
+    elif n_features >= 2 or n_modules >= 3:
+        if graph_used and vocabulary_used and avg_conf >= 0.75 and (n_features >= 3 or n_modules >= 4):
+            verdict = "rich"
+            message = (
+                f"Rich — graph-grounded ({n_features} feature(s), {n_modules} module(s), "
+                f"avg confidence {avg_conf:.0%})."
+            )
+            guidance = []
+        else:
+            verdict = "good"
+            graph_note = "" if graph_used else " (heuristic-only)"
+            message = (
+                f"Good{graph_note} — {n_features} feature(s) + {n_modules} module(s) detected."
+            )
+            guidance = (
+                [] if graph_used
+                else ["Run `repomind build` to add graph-grounded depth."]
+            )
+    else:
+        verdict = "sparse"
+        message = f"Sparse — {n_features} feature(s) + {n_modules} module(s) detected."
+        guidance = []
+        if not graph_used:
+            guidance.append("Graph is absent — run `repomind build` for richer context.")
+        if low_conf_count > 0:
+            guidance.append(
+                f"{low_conf_count} area(s) have low confidence — "
+                "verify groupings or add overrides."
+            )
+
+    return {
+        "verdict": verdict,
+        "message": message,
+        "guidance": guidance,
+        "avg_confidence": round(avg_conf, 3),
+        "graph_used": graph_used,
+        "vocabulary_used": vocabulary_used,
+    }
+
+
 def run_memory_init_pipeline(root: Path) -> dict:
     """Execute the full memory init pipeline and return structured results.
 
@@ -114,15 +200,20 @@ def run_memory_init_pipeline(root: Path) -> dict:
     features = classify_features(root, scan)
     modules = classify_modules(root, scan)
 
-    # 2b. Fetch graph vocabulary (function/class names) for content-aware generation
+    # 2b. Fetch graph vocabulary and per-file node summaries for content-aware generation
     vocabulary: dict[str, list[str]] = {}
+    node_summaries: dict = {}
     try:
-        from .graph_bridge import get_file_vocabulary, graph_available
+        from .graph_bridge import get_file_node_summary, get_file_vocabulary, graph_available
         if graph_available(root):
             all_files = list({f for item in [*features, *modules] for f in item.files})
             vocabulary = get_file_vocabulary(all_files, root)
+            node_summaries = get_file_node_summary(all_files, root)
     except Exception:
         vocabulary = {}
+        node_summaries = {}
+
+    vocabulary_used = bool(vocabulary)
 
     # 3. Ensure directory tree
     dirs = ensure_memory_dirs(root)
@@ -150,7 +241,11 @@ def run_memory_init_pipeline(root: Path) -> dict:
         rel = f".agent-memory/features/{slug}.md"
         st = write_text_if_changed(
             dirs["features"] / f"{slug}.md",
-            generate_feature_doc(feature, vocabulary=vocabulary or None),
+            generate_feature_doc(
+                feature,
+                vocabulary=vocabulary or None,
+                node_summaries=node_summaries or None,
+            ),
         )
         write_statuses[rel] = st
         feature_statuses.append((rel, st))
@@ -164,7 +259,11 @@ def run_memory_init_pipeline(root: Path) -> dict:
         rel = f".agent-memory/modules/{slug}.md"
         st = write_text_if_changed(
             dirs["modules"] / f"{slug}.md",
-            generate_module_doc(module, vocabulary=vocabulary or None),
+            generate_module_doc(
+                module,
+                vocabulary=vocabulary or None,
+                node_summaries=node_summaries or None,
+            ),
         )
         write_statuses[rel] = st
         module_statuses.append((rel, st))
@@ -215,6 +314,7 @@ def run_memory_init_pipeline(root: Path) -> dict:
         "write_statuses": write_statuses,
         "feature_statuses": feature_statuses,
         "module_statuses": module_statuses,
+        "vocabulary_used": vocabulary_used,
     }
 
 
@@ -251,6 +351,7 @@ def memory_init_command(args: argparse.Namespace) -> None:
     write_statuses = result["write_statuses"]
     feature_statuses = result["feature_statuses"]
     module_statuses = result["module_statuses"]
+    vocabulary_used: bool = result.get("vocabulary_used", False)
 
     print()
     print(f"  languages   : {', '.join(scan.languages) or 'none detected'}")
@@ -281,8 +382,9 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print()
 
     # Fix 5: graph-missing degraded mode notice
-    from .graph_bridge import graph_available
-    if not graph_available(repo_root):
+    from .graph_bridge import graph_available as _graph_available
+    _graph_used = _graph_available(repo_root)
+    if not _graph_used:
         print("  Note: graph.db not found — running in heuristic-only mode.")
         print("  For richer context (import chains, call graphs, blast radius), run:")
         print("    code-review-graph build")
@@ -329,38 +431,32 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print("  Without it, Claude Code will NOT auto-load .agent-memory/CLAUDE.md.")
         print()
 
-    # Quality verdict
-    avg_conf = (
-        sum(f.confidence for f in features) / len(features) if features else
-        sum(m.confidence for m in modules) / len(modules) if modules else 0.0
+    # Quality verdict (reuses _graph_used computed above)
+    verdict_result = compute_quality_verdict(
+        features, modules,
+        graph_used=_graph_used,
+        vocabulary_used=vocabulary_used,
     )
-    if len(features) >= 2 or len(modules) >= 3:
-        quality = "good"
-        quality_msg = f"  Quality: good — {len(features)} features + {len(modules)} modules detected"
-    elif len(features) == 0 and len(modules) <= 1:
-        quality = "sparse"
-        quality_msg = (
-            f"  Quality: sparse — 0 features detected. "
-            "Add domain corrections in .agent-memory/overrides/ or run `repomind build` first."
-        )
-    else:
-        quality = "partial"
-        quality_msg = f"  Quality: partial — {len(features)} features + {len(modules)} modules"
-    print(quality_msg)
+    quality = verdict_result["verdict"]
+    print(f"  Quality: {verdict_result['message']}")
+    for guidance_line in verdict_result["guidance"]:
+        print(f"    -> {guidance_line}")
+    if verdict_result["guidance"]:
+        print()
     print(f"  Completed in {_duration:.2f}s")
     print()
     print("  Done. Commit .agent-memory/ to share memory with your team.")
 
     # Record metrics
-    from .graph_bridge import graph_available
     from .telemetry import record
     record("init", {
         "duration_s": round(_duration, 3),
         "feature_count": len(features),
         "module_count": len(modules),
-        "avg_confidence": round(avg_conf, 3),
+        "avg_confidence": verdict_result["avg_confidence"],
         "artifact_count": len(write_statuses),
-        "graph_used": graph_available(repo_root),
+        "graph_used": _graph_used,
+        "vocabulary_used": vocabulary_used,
         "quality": quality,
     }, repo_root)
 
