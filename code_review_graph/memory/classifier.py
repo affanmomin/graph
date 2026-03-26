@@ -245,7 +245,27 @@ def classify_features(repo_root: Path, scan: RepoScan) -> list[FeatureMemory]:
             summary=cand.rationale,
         ))
 
-    return sorted(result, key=lambda f: f.name)
+    result = sorted(result, key=lambda f: f.name)
+
+    # Flat-package / feature-poor rescue: when no features were found via normal
+    # heuristics, or the scan explicitly reports a flat-package layout, attempt
+    # embedding-assisted or keyword-name grouping.
+    if not result or scan.repo_shape == "flat-package":
+        try:
+            from .flat_rescue import rescue_flat_features
+            rescued = rescue_flat_features(repo_root, scan, result)
+            if rescued:
+                # Merge rescued features — avoid duplicating any already-found names
+                existing_names = {f.name.lower() for f in result}
+                for rf in rescued:
+                    if rf.name.lower() not in existing_names:
+                        result.append(rf)
+                        existing_names.add(rf.name.lower())
+                result = sorted(result, key=lambda f: f.name)
+        except Exception as exc:
+            logger.debug("classifier: flat rescue failed: %s", exc)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

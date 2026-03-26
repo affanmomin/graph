@@ -315,6 +315,8 @@ def run_memory_init_pipeline(root: Path) -> dict:
         "feature_statuses": feature_statuses,
         "module_statuses": module_statuses,
         "vocabulary_used": vocabulary_used,
+        "repo_shape": scan.repo_shape,
+        "shape_rationale": scan.shape_rationale,
     }
 
 
@@ -359,6 +361,7 @@ def memory_init_command(args: argparse.Namespace) -> None:
     print(f"  source dirs : {', '.join(scan.source_dirs) or 'none detected'}")
     print(f"  test dirs   : {', '.join(scan.test_dirs) or 'none detected'}")
     print(f"  confidence  : {scan.confidence:.0%}")
+    print(f"  repo shape  : {scan.repo_shape}")
     print(f"  features    : {len(features)}")
     print(f"  modules     : {len(modules)}")
     print()
@@ -379,6 +382,14 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print("  Notes:")
         for note in scan.notes:
             print(f"    - {note}")
+        print()
+
+    # Flat-package notice
+    if scan.repo_shape == "flat-package":
+        print("  Note: flat-package layout detected.")
+        print(f"    {scan.shape_rationale}")
+        print("    Feature groupings may be approximate — consider adding overrides/")
+        print("    to improve classification accuracy.")
         print()
 
     # Fix 5: graph-missing degraded mode notice
