@@ -414,6 +414,18 @@ def _enrich_with_graph(
         if not graph_available(repo_root):
             return False
 
+        # 4.1: Prepend call-graph entry points so they seed test/neighbor discovery
+        # before the plain heuristic ordering takes over.
+        try:
+            from .graph_bridge import get_all_call_graph_signals
+            _cg = get_all_call_graph_signals({"_ctx": files[:_GRAPH_SEED_FILES]}, repo_root)
+            _ep = _cg.get("_ctx", None)
+            if _ep and _ep.entry_points:
+                files_ep_first = list(dict.fromkeys([*_ep.entry_points, *files]))
+                files[:] = files_ep_first
+        except Exception:
+            pass
+
         seed_files = files[:_GRAPH_SEED_FILES]
         existing_files: set[str] = set(files)
         existing_tests: set[str] = set(tests)

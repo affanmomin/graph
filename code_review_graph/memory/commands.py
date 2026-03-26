@@ -185,6 +185,7 @@ def run_memory_init_pipeline(root: Path) -> dict:
     from .generator import (  # noqa: I001
         generate_repo_summary, generate_architecture_doc,
         generate_feature_doc, generate_module_doc,
+        generate_hotspots_doc,
         generate_conventions_doc, generate_safe_boundaries_doc,
         generate_claude_memory_doc,
     )
@@ -214,6 +215,27 @@ def run_memory_init_pipeline(root: Path) -> dict:
         node_summaries = {}
 
     vocabulary_used = bool(vocabulary)
+
+    # 2c. Fetch call-graph, structural-depth, and hotspot signals (Phase 4)
+    call_signals_map: dict[str, object] = {}
+    structural_signals_map: dict[str, object] = {}
+    hotspot_nodes: list = []
+    try:
+        from .graph_bridge import (
+            get_all_call_graph_signals,
+            get_all_hotspot_nodes,
+            get_all_structural_depth_signals,
+        )
+        if vocabulary_used:  # graph is available (vocabulary was already fetched)
+            all_files = list({f for item in [*features, *modules] for f in item.files})
+            feature_groups = {f.name: f.files for f in features}
+            module_groups = {m.name: m.files for m in modules}
+            all_groups = {**feature_groups, **module_groups}
+            call_signals_map = get_all_call_graph_signals(all_groups, root)
+            structural_signals_map = get_all_structural_depth_signals(module_groups, root)
+            hotspot_nodes = get_all_hotspot_nodes(root)
+    except Exception:
+        pass
 
     # 3. Ensure directory tree
     dirs = ensure_memory_dirs(root)
@@ -245,6 +267,7 @@ def run_memory_init_pipeline(root: Path) -> dict:
                 feature,
                 vocabulary=vocabulary or None,
                 node_summaries=node_summaries or None,
+                call_signals=call_signals_map.get(feature.name) or None,
             ),
         )
         write_statuses[rel] = st
@@ -263,12 +286,23 @@ def run_memory_init_pipeline(root: Path) -> dict:
                 module,
                 vocabulary=vocabulary or None,
                 node_summaries=node_summaries or None,
+                call_signals=call_signals_map.get(module.name) or None,
+                structural_signals=structural_signals_map.get(module.name) or None,
             ),
         )
         write_statuses[rel] = st
         module_statuses.append((rel, st))
         artifacts.append({"artifact_id": f"module:{slug}", "artifact_type": "module",
                            "relative_path": rel})
+
+    # 6b. Hotspots doc (Ticket 4.2) — written only when graph data is available
+    rel_hotspots = ".agent-memory/changes/hotspots.md"
+    hotspots_content = generate_hotspots_doc(hotspot_nodes, scan)
+    write_statuses[rel_hotspots] = write_text_if_changed(
+        dirs["changes"] / "hotspots.md", hotspots_content
+    )
+    artifacts.append({"artifact_id": "changes:hotspots", "artifact_type": "changes",
+                       "relative_path": rel_hotspots})
 
     # 7. Load overrides and write rule docs
     overrides = load_overrides(dirs["root"])
@@ -371,6 +405,7 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print(f"  {rel} [{st}]")
     for rel, st in module_statuses:
         print(f"  {rel} [{st}]")
+    print(f"  .agent-memory/changes/hotspots.md      [{write_statuses.get('.agent-memory/changes/hotspots.md', 'skip')}]")
     print(f"  .agent-memory/rules/conventions.md     [{write_statuses['.agent-memory/rules/conventions.md']}]")
     print(f"  .agent-memory/rules/safe-boundaries.md [{write_statuses['.agent-memory/rules/safe-boundaries.md']}]")
     print(f"  .agent-memory/CLAUDE.md                [{write_statuses['.agent-memory/CLAUDE.md']}]")

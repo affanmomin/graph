@@ -17,6 +17,13 @@ get_change_impact(changed_files, repo_root, ...) -> ChangeImpactContext | None
 get_graph_expanded_files(changed_files, repo_root, max_expansion=20) -> list[str]
 ClassifierGraphSignals (dataclass)
 get_all_classifier_signals(groups, repo_root) -> dict[str, ClassifierGraphSignals]
+CallGraphSignals (dataclass)                                                      [4.1]
+get_all_call_graph_signals(groups, repo_root) -> dict[str, CallGraphSignals]     [4.1]
+HotspotNode (dataclass)                                                           [4.2]
+get_all_hotspot_nodes(repo_root, min_lines, max_nodes) -> list[HotspotNode]      [4.2]
+get_hotspot_nodes(files, repo_root, min_lines, max_nodes) -> list[HotspotNode]   [4.2]
+StructuralDepthSignals (dataclass)                                                [4.3]
+get_all_structural_depth_signals(groups, repo_root) -> dict[str, StructuralDepthSignals] [4.3]
 
 Graph capabilities reused
 -------------------------
@@ -836,4 +843,375 @@ def get_all_classifier_signals(
             return signals
     except Exception as exc:
         logger.debug("get_all_classifier_signals: failed: %s", exc)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Call-graph signals — Ticket 4.1
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CallGraphSignals:
+    """CALLS-derived structural signals for one feature/module group.
+
+    Attributes:
+        entry_points:        File paths that call into other group files but
+                             are not themselves called by other group files —
+                             the natural "entry points" of the area.
+        key_helpers:         File paths called by 2+ other group files —
+                             shared internal helpers.
+        entry_point_symbols: Representative public symbol names at entry-point
+                             files (up to 3, for doc generation).
+    """
+
+    entry_points: list[str] = field(default_factory=list)
+    key_helpers: list[str] = field(default_factory=list)
+    entry_point_symbols: list[str] = field(default_factory=list)
+
+
+def get_all_call_graph_signals(
+    groups: dict[str, list[str]],
+    repo_root: str | Path,
+    max_entry_points: int = 3,
+    max_helpers: int = 3,
+) -> dict[str, CallGraphSignals]:
+    """Compute CALLS-based entry-point and helper signals for all groups in one DB pass.
+
+    For each group, analyses internal CALLS edges to classify files as:
+    - **entry points**: files that call into the group but are not called internally.
+    - **key helpers**: files called by 2+ other files in the group.
+
+    When no internal CALLS edges exist (e.g. the group has only 1 file), the
+    result will have empty lists — callers should fall back to heuristics.
+
+    Args:
+        groups:    Mapping of group name → list of repo-relative file paths.
+        repo_root: Repository root containing ``.code-review-graph/graph.db``.
+
+    Returns:
+        Dict of group name → :class:`CallGraphSignals`.  Returns ``{}`` when
+        the graph is unavailable or any error occurs.
+    """
+    if not groups:
+        return {}
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return {}
+
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return {}
+
+            result: dict[str, CallGraphSignals] = {n: CallGraphSignals() for n in groups}
+
+            for group_name, group_files in groups.items():
+                if len(group_files) < 2:
+                    continue  # single-file group: no internal calls possible
+
+                group_set = set(group_files)
+
+                # Build qualified_name → file_path map for this group
+                qn_to_file: dict[str, str] = {}
+                file_nodes: dict[str, list] = {}   # fp → list[node]
+                for fp in group_files:
+                    nodes = gs.get_nodes_by_file(fp)
+                    file_nodes[fp] = nodes
+                    for node in nodes:
+                        qn_to_file[node.qualified_name] = fp
+
+                # Count internal fan-in and fan-out per file
+                # fan_out[fp]: unique other group files this file calls
+                # fan_in[fp]: unique other group files that call this file
+                fan_out: dict[str, set[str]] = {fp: set() for fp in group_files}
+                fan_in: dict[str, set[str]] = {fp: set() for fp in group_files}
+
+                for fp in group_files:
+                    for node in file_nodes[fp]:
+                        qn = node.qualified_name
+                        # Outgoing CALLS
+                        for edge in gs.get_edges_by_source(qn):
+                            if edge.kind == "CALLS":
+                                target_fp = _file_from_qualified(edge.target_qualified)
+                                if target_fp and target_fp in group_set and target_fp != fp:
+                                    fan_out[fp].add(target_fp)
+                                    fan_in[target_fp].add(fp)
+
+                sig = result[group_name]
+
+                # Entry points: fan_in == 0 AND fan_out >= 1
+                entry_candidates = sorted(
+                    fp for fp in group_files
+                    if len(fan_in[fp]) == 0 and len(fan_out[fp]) >= 1
+                )
+                sig.entry_points = entry_candidates[:max_entry_points]
+
+                # Key helpers: called by 2+ other group files
+                helper_candidates = sorted(
+                    (fp for fp in group_files if len(fan_in[fp]) >= 2),
+                    key=lambda fp: -len(fan_in[fp]),  # most-called first
+                )
+                sig.key_helpers = helper_candidates[:max_helpers]
+
+                # Entry-point symbols: public non-private function/class names
+                ep_symbols: list[str] = []
+                seen_syms: set[str] = set()
+                for ep_fp in sig.entry_points:
+                    for node in file_nodes.get(ep_fp, []):
+                        if node.kind in ("File", "Import"):
+                            continue
+                        if not node.name or len(node.name) < 3 or node.name.startswith("_"):
+                            continue
+                        if node.name not in seen_syms:
+                            seen_syms.add(node.name)
+                            ep_symbols.append(node.name)
+                sig.entry_point_symbols = ep_symbols[:3]
+
+            return result
+    except Exception as exc:
+        logger.debug("get_all_call_graph_signals: failed: %s", exc)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Hotspot nodes — Ticket 4.2
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class HotspotNode:
+    """A large function or class that may be a complexity/risk hotspot.
+
+    Attributes:
+        name:       Symbol name (function or class).
+        file_path:  Repo-relative file path containing this symbol.
+        kind:       Node kind — ``"Function"``, ``"Class"``, ``"Method"``, etc.
+        line_count: Number of lines in this symbol's body.
+    """
+
+    name: str
+    file_path: str
+    kind: str
+    line_count: int
+
+
+def get_all_hotspot_nodes(
+    repo_root: str | Path,
+    min_lines: int = 40,
+    max_nodes: int = 20,
+) -> list[HotspotNode]:
+    """Return the largest functions/classes across the entire repo.
+
+    Uses ``GraphStore.get_nodes_by_size()`` to find symbols above *min_lines*,
+    ordered by line count descending.  Intended for generating
+    ``.agent-memory/changes/hotspots.md``.
+
+    Args:
+        repo_root:  Repository root containing ``graph.db``.
+        min_lines:  Minimum body size to qualify as a hotspot (default 40).
+        max_nodes:  Maximum hotspot entries to return (default 20).
+
+    Returns:
+        Sorted list of :class:`HotspotNode`, largest first.  Empty when the
+        graph is absent or no nodes exceed the threshold.
+    """
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return []
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return []
+            nodes = gs.get_nodes_by_size(min_lines=min_lines, limit=max_nodes)
+            return [
+                HotspotNode(
+                    name=n.name,
+                    file_path=n.file_path,
+                    kind=n.kind,
+                    line_count=(n.line_end - n.line_start) if n.line_end else 0,
+                )
+                for n in nodes
+                if n.name and not n.name.startswith("_")
+            ]
+    except Exception as exc:
+        logger.debug("get_all_hotspot_nodes: failed: %s", exc)
+        return []
+
+
+def get_hotspot_nodes(
+    files: list[str],
+    repo_root: str | Path,
+    min_lines: int = 40,
+    max_nodes: int = 5,
+) -> list[HotspotNode]:
+    """Return the largest symbols within the given *files*.
+
+    Unlike :func:`get_all_hotspot_nodes`, this filters to a specific file set —
+    used to surface per-feature/module hotspots in ``memory explain``.
+
+    Args:
+        files:      Repo-relative file paths to inspect.
+        repo_root:  Repository root.
+        min_lines:  Minimum body size to qualify (default 40).
+        max_nodes:  Maximum entries to return (default 5).
+
+    Returns:
+        :class:`HotspotNode` list, largest first.
+    """
+    if not files:
+        return []
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return []
+    file_set = set(files)
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return []
+            hotspots: list[HotspotNode] = []
+            for fp in files:
+                for node in gs.get_nodes_by_file(fp):
+                    if node.kind in ("File", "Import"):
+                        continue
+                    if not node.name or node.name.startswith("_"):
+                        continue
+                    lc = (node.line_end - node.line_start) if node.line_end else 0
+                    if lc >= min_lines:
+                        hotspots.append(HotspotNode(
+                            name=node.name,
+                            file_path=fp,
+                            kind=node.kind,
+                            line_count=lc,
+                        ))
+            hotspots.sort(key=lambda h: -h.line_count)
+            return hotspots[:max_nodes]
+    except Exception as exc:
+        logger.debug("get_hotspot_nodes: failed: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Structural depth signals — Ticket 4.3
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class StructuralDepthSignals:
+    """Containment, inheritance, and cross-file coupling signals for one group.
+
+    Attributes:
+        inheritance_pairs:  List of ``(child_class, parent_class)`` name pairs
+                            for INHERITS edges found within the group's files.
+        coupling_files:     Files with the most cross-file CALLS edges (fan-in
+                            from other group files), sorted by edge count desc.
+        coupling_score:     Density of cross-file CALLS within the group
+                            (0 = fully decoupled, 1 = every pair is connected).
+    """
+
+    inheritance_pairs: list[tuple[str, str]] = field(default_factory=list)
+    coupling_files: list[str] = field(default_factory=list)
+    coupling_score: float = 0.0
+
+
+def get_all_structural_depth_signals(
+    groups: dict[str, list[str]],
+    repo_root: str | Path,
+    max_pairs: int = 5,
+    max_coupling_files: int = 3,
+) -> dict[str, StructuralDepthSignals]:
+    """Compute INHERITS/coupling signals for all groups in one DB pass.
+
+    For each group:
+    - Scans INHERITS edges among nodes in the group's files to build an
+      inheritance summary (e.g. ``[("TokenStore", "BaseStore")]``).
+    - Counts cross-file CALLS edges to produce a coupling score and list
+      the most-called files within the group.
+
+    Args:
+        groups:              Mapping of group name → repo-relative file paths.
+        repo_root:           Repo root.
+        max_pairs:           Max inheritance pairs to return per group.
+        max_coupling_files:  Max coupling file paths to surface.
+
+    Returns:
+        Dict of group name → :class:`StructuralDepthSignals`.  Returns ``{}``
+        when the graph is unavailable or any error occurs.
+    """
+    if not groups:
+        return {}
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return {}
+
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return {}
+
+            result: dict[str, StructuralDepthSignals] = {n: StructuralDepthSignals() for n in groups}
+
+            for group_name, group_files in groups.items():
+                if not group_files:
+                    continue
+
+                group_set = set(group_files)
+
+                # Build qn → (name, file_path) map for this group
+                qn_to_info: dict[str, tuple[str, str]] = {}
+                file_nodes: dict[str, list] = {}
+                for fp in group_files:
+                    nodes = gs.get_nodes_by_file(fp)
+                    file_nodes[fp] = nodes
+                    for node in nodes:
+                        qn_to_info[node.qualified_name] = (node.name, fp)
+
+                inh_pairs: list[tuple[str, str]] = []
+                # fan_in_count[fp] = number of cross-file CALLS edges TO this file
+                fan_in_count: dict[str, int] = {fp: 0 for fp in group_files}
+                total_cross_calls = 0
+
+                for fp in group_files:
+                    for node in file_nodes[fp]:
+                        qn = node.qualified_name
+
+                        for edge in gs.get_edges_by_source(qn):
+                            if edge.kind == "INHERITS":
+                                # child (fp) INHERITS parent (target)
+                                parent_info = qn_to_info.get(edge.target_qualified)
+                                if parent_info:
+                                    child_name = node.name or ""
+                                    parent_name = parent_info[0] or ""
+                                    if child_name and parent_name and child_name != parent_name:
+                                        pair = (child_name, parent_name)
+                                        if pair not in inh_pairs:
+                                            inh_pairs.append(pair)
+
+                            elif edge.kind == "CALLS":
+                                target_fp = _file_from_qualified(edge.target_qualified)
+                                if target_fp and target_fp in group_set and target_fp != fp:
+                                    fan_in_count[target_fp] += 1
+                                    total_cross_calls += 1
+
+                sig = result[group_name]
+                sig.inheritance_pairs = inh_pairs[:max_pairs]
+
+                # Coupling score: cross-file calls / (files * files) rough density
+                n = len(group_files)
+                max_possible = n * (n - 1) if n > 1 else 1
+                sig.coupling_score = round(min(1.0, total_cross_calls / max_possible), 2)
+
+                # Most-called files (highest fan-in)
+                sig.coupling_files = sorted(
+                    (fp for fp in group_files if fan_in_count[fp] >= 1),
+                    key=lambda fp: -fan_in_count[fp],
+                )[:max_coupling_files]
+
+            return result
+    except Exception as exc:
+        logger.debug("get_all_structural_depth_signals: failed: %s", exc)
         return {}
