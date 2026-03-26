@@ -38,6 +38,36 @@
       "relative_path": ".agent-memory/architecture.md"
     },
     {
+      "artifact_id": "changes:hotspots",
+      "artifact_type": "changes",
+      "relative_path": ".agent-memory/changes/hotspots.md"
+    },
+    {
+      "artifact_id": "feature:cache",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/cache.md"
+    },
+    {
+      "artifact_id": "feature:cli",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/cli.md"
+    },
+    {
+      "artifact_id": "feature:core",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/core.md"
+    },
+    {
+      "artifact_id": "feature:models",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/models.md"
+    },
+    {
+      "artifact_id": "feature:search",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/search.md"
+    },
+    {
       "artifact_id": "module:code_review_graph-memory",
       "artifact_type": "module",
       "relative_path": ".agent-memory/modules/code_review_graph-memory.md"
@@ -58,7 +88,7 @@
       "relative_path": ".agent-memory/rules/safe-boundaries.md"
     }
   ],
-  "generated_at": "2026-03-25T16:39:07.486927+00:00",
+  "generated_at": "2026-03-26T20:29:28.977147+00:00",
   "repo_root": "C:\\Users\\Lenovo\\graph",
   "scan_confidence": 1.0,
   "source_roots": [
