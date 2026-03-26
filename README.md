@@ -183,6 +183,9 @@ Graph engine (local, gitignored)     Repo memory (committed to Git)
     <slug>.md                   # one file per detected feature: files, tests, deps, confidence
   modules/
     <slug>.md                   # one file per code module: files, tests, deps, confidence
+  changes/
+    recent.md                   # recent git changes per area (written by memory refresh)
+    hotspots.md                 # files changed most frequently across all areas
   rules/
     conventions.md              # coding conventions derived from code + human overrides
     safe-boundaries.md          # paths Claude should never casually edit
@@ -288,6 +291,8 @@ When the MCP server is running (`code-review-graph serve`), Claude Code can call
 | `semantic_search_nodes_tool` | Search code entities by name or semantic meaning |
 | `find_large_functions_tool` | Find functions/classes exceeding a line threshold |
 | `list_graph_stats_tool` | Graph size, language breakdown, health stats |
+| `embed_graph_tool` | Build or refresh vector embeddings for semantic node search |
+| `get_docs_section_tool` | Retrieve a named section from repo documentation |
 
 ---
 
@@ -344,7 +349,7 @@ See [`docs/`](docs/) for architecture, schema, and full command reference.
 
 ## Status
 
-**Alpha.** Memory classification is heuristic-based — no LLMs, just code structure. It works well on most repos but may misclassify features or miss conventions in unusual layouts. Use `memory annotate` to add corrections. Bug reports and feedback welcome at [GitHub Issues](https://github.com/tirth8205/code-review-graph/issues).
+**Alpha.** Memory classification is heuristic-based — no LLMs, just code structure. It works well on repos with domain-structured directories (`auth/`, `billing/`, `api/`, etc.). Known limitation: repos where all source files live in a single flat package (no feature subdirectories) will detect 0 features — only modules. Use `memory annotate` to add corrections and task hints. Bug reports and feedback welcome at [GitHub Issues](https://github.com/tirth8205/code-review-graph/issues).
 
 ## Licence
 
