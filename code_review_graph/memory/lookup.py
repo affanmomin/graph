@@ -196,12 +196,52 @@ def explain_match(
     conf_note = _confidence_label(obj.confidence)
     lines.append(f"  Confidence : {conf_pct} ({conf_note})")
 
-    # Purpose (inline — keep it one line)
-    file_count = len(obj.files)
-    lines.append(
-        f"  Purpose    : {kind_label} covering {file_count} file(s). "
-        f"Classified by {_classification_source(obj.confidence)}."
-    )
+    # Fetch graph node summaries once — used for Purpose and Key symbols sections.
+    # Falls back gracefully when graph is absent or repo_root is not supplied.
+    _node_summaries: dict = {}
+    _vocabulary: dict = {}
+    if repo_root is not None:
+        try:
+            from .graph_bridge import get_file_node_summary, get_file_vocabulary, graph_available
+            if graph_available(repo_root):
+                _seed = obj.files[:10]
+                _node_summaries = get_file_node_summary(_seed, repo_root)
+                _vocabulary = get_file_vocabulary(_seed, repo_root)
+        except Exception as _exc:
+            logger.debug("explain_match: graph vocab fetch failed: %s", _exc)
+
+    # Purpose — graph-grounded when node_summaries or vocabulary are available;
+    # falls back to the path-count description otherwise.
+    from .models import FeatureMemory as _FeatureMemory
+    if isinstance(obj, _FeatureMemory):
+        from .generator import _feature_purpose
+        _purpose = _feature_purpose(
+            obj,
+            vocabulary=_vocabulary or None,
+            node_summaries=_node_summaries or None,
+        )
+    else:
+        from .generator import _module_purpose
+        _purpose = _module_purpose(
+            obj,
+            vocabulary=_vocabulary or None,
+            node_summaries=_node_summaries or None,
+        )
+    lines.append(f"  Purpose    : {_purpose}")
+
+    # Key symbols — shown only when graph data is available and produces symbols.
+    if _node_summaries:
+        from .generator import _collect_symbols_from_summaries
+        _classes, _functions = _collect_symbols_from_summaries(
+            _node_summaries, obj.files[:10], max_classes=4, max_functions=4,
+        )
+        if _classes or _functions:
+            sym_parts: list[str] = []
+            if _classes:
+                sym_parts.append("Classes: " + ", ".join(f"`{c}`" for c in _classes))
+            if _functions:
+                sym_parts.append("Functions: " + ", ".join(f"`{f}`" for f in _functions))
+            lines.append(f"  Key symbols: {' | '.join(sym_parts)}")
     lines.append("")
 
     # Main files
@@ -350,10 +390,23 @@ def changed_match(
             if cf in known or any(cf.startswith(f.rsplit("/", 1)[0]) for f in known):
                 area_files.append(cf)
 
+    # Vocabulary for annotating changed files with key symbols.
+    # Fetched once here; also reused by the graph section below.
+    _changed_vocab: dict = {}
+    if repo_root is not None and area_files:
+        try:
+            from .graph_bridge import get_file_vocabulary, graph_available
+            if graph_available(repo_root):
+                _changed_vocab = get_file_vocabulary(area_files[:10], repo_root)
+        except Exception as _exc:
+            logger.debug("changed_match: vocab fetch failed: %s", _exc)
+
     if area_files:
         lines.append("  Recently changed in this area:")
         for f in area_files[:10]:
-            lines.append(f"    - {f}")
+            syms = _changed_vocab.get(f, [])[:4]
+            sym_note = f"  — {', '.join(f'`{s}`' for s in syms)}" if syms else ""
+            lines.append(f"    - {f}{sym_note}")
         lines.append("")
     else:
         lines.append("  No recent changes detected in this area.")

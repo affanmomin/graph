@@ -152,6 +152,25 @@ def build_context_pack(
         key=lambda x: (-x[1], x[0].name),
     )
 
+    # Graph symbol boost: rerank items whose files contain task-relevant symbols.
+    # This lifts items with no lexical name/path match but relevant symbol-owning files,
+    # e.g. "fix token expiry" should surface the auth feature even if the task never
+    # mentions "auth" or "src/auth/".
+    graph_symbol_routed = False
+    precomputed_symbol_files: list[str] = []
+    if repo_root is not None and task.strip():
+        _boosts, precomputed_symbol_files = _graph_symbol_boost(task, features, modules, repo_root)
+        if _boosts:
+            graph_symbol_routed = True
+            scored_features = sorted(
+                [(f, s + _boosts.get(id(f), 0.0)) for f, s in scored_features],
+                key=lambda x: (-x[1], x[0].name),
+            )
+            scored_modules = sorted(
+                [(m, s + _boosts.get(id(m), 0.0)) for m, s in scored_modules],
+                key=lambda x: (-x[1], x[0].name),
+            )
+
     # Keep only items above the relevance threshold
     relevant_features = [(f, s) for f, s in scored_features if s >= _MIN_SCORE][:_MAX_FEATURES]
     relevant_modules = [(m, s) for m, s in scored_modules if s >= _MIN_SCORE][:_MAX_MODULES]
@@ -170,7 +189,12 @@ def build_context_pack(
 
     # Graph enrichment — add structurally related files/tests when graph is available.
     # Modifies files_ordered and tests_ordered in-place; never raises.
-    graph_enriched = _enrich_with_graph(files_ordered, tests_ordered, repo_root, task=task)
+    # Pass precomputed symbol_files to avoid a second get_task_symbol_files() call and to
+    # use them as extended seeds for test discovery.
+    graph_enriched = _enrich_with_graph(
+        files_ordered, tests_ordered, repo_root, task=task,
+        symbol_files=precomputed_symbol_files or None,
+    )
 
     warnings = _build_warnings(
         relevant_features=top_features,
@@ -186,6 +210,7 @@ def build_context_pack(
         warnings=warnings,
         fallback=fallback,
         graph_enriched=graph_enriched,
+        graph_symbol_routed=graph_symbol_routed,
     )
 
     pack = TaskContextPack(
@@ -294,6 +319,55 @@ def _score(
 
 
 # ---------------------------------------------------------------------------
+# Graph symbol boost
+# ---------------------------------------------------------------------------
+
+
+def _graph_symbol_boost(
+    task: str,
+    features: list[FeatureMemory],
+    modules: list[ModuleMemory],
+    repo_root: Path,
+) -> tuple[dict[int, float], list[str]]:
+    """Compute graph-based score boosts for features/modules owning task-relevant symbol files.
+
+    Calls ``get_task_symbol_files()`` once, maps the returned source files back
+    to the features/modules that own them, and returns a proportional boost for
+    each matched item.  Also returns the raw symbol file list so the caller can
+    pass it to ``_enrich_with_graph()`` without a second graph DB open.
+
+    The boost is intentionally small (max ~0.27) — enough to lift a zero-heuristic
+    item above ``_MIN_SCORE`` when it genuinely owns a symbol file, while leaving
+    lexical matches dominant when both signals fire.
+
+    Returns:
+        Tuple of (boosts: dict[id(item) → float], symbol_files: list[str]).
+        Both are empty when the graph is unavailable or no files are found.
+    """
+    try:
+        from .graph_bridge import get_task_symbol_files
+        symbol_files = get_task_symbol_files(task, repo_root, max_files=10)
+        if not symbol_files:
+            return {}, []
+
+        symbol_file_set = set(symbol_files)
+        boosts: dict[int, float] = {}
+
+        for item in [*features, *modules]:
+            matched = sum(1 for f in item.files if f in symbol_file_set)
+            if matched > 0:
+                frac = matched / max(len(item.files), 1)
+                # Mirror the confidence soft-weighting used in _score()
+                boost = min(frac * 0.3, 0.3) * (0.4 + 0.6 * item.confidence)
+                boosts[id(item)] = boost
+
+        return boosts, symbol_files
+    except Exception as exc:
+        logger.debug("_graph_symbol_boost: failed: %s", exc)
+        return {}, []
+
+
+# ---------------------------------------------------------------------------
 # Graph enrichment
 # ---------------------------------------------------------------------------
 
@@ -303,20 +377,23 @@ def _enrich_with_graph(
     tests: list[str],
     repo_root: Path | None,
     task: str = "",
+    symbol_files: list[str] | None = None,
 ) -> bool:
     """Enrich *files* and *tests* in-place with graph-backed relationships.
 
-    Three complementary graph strategies are combined:
+    Four complementary graph strategies are combined:
 
     1. **Impact-radius files** — source files reachable within 1 BFS hop of the
        heuristic seed files (``get_related_files``).
     2. **Related tests** — test files linked via TESTED_BY edges or 1-hop BFS
-       (``get_related_tests``).
+       (``get_related_tests``), seeded from heuristic files *plus* symbol files
+       so tests for symbol-matched files are always discovered.
     3. **Structural neighbors** — files connected via IMPORTS_FROM in either
        direction (``get_structural_neighbors``).
     4. **Symbol files** — when *task* is provided, files containing symbols
-       whose names match the task description are added as extra seeds
-       (``get_task_symbol_files``).
+       whose names match the task description (``get_task_symbol_files``).
+       When *symbol_files* is passed in (pre-computed by ``_graph_symbol_boost``),
+       the graph is not queried again.
 
     Only entries not already present are appended.  All caps are applied before
     the final ``_MAX_FILES`` ceiling at pack assembly time.
@@ -341,20 +418,24 @@ def _enrich_with_graph(
         existing_files: set[str] = set(files)
         existing_tests: set[str] = set(tests)
 
+        # Resolve symbol files early — before test discovery — so symbol-matched
+        # files contribute as test-discovery seeds alongside heuristic seeds.
+        if symbol_files is None:
+            symbol_files = []
+            if task.strip():
+                symbol_files = get_task_symbol_files(
+                    task, repo_root, max_files=_GRAPH_MAX_SYMBOL_FILES
+                )
+
+        # Extended seeds: heuristic seeds + symbol-matched files (deduped, ordered).
+        extended_seeds = list(dict.fromkeys([*seed_files, *symbol_files]))
+
         graph_files = get_related_files(seed_files, repo_root, max_files=_GRAPH_MAX_EXTRA_FILES)
-        graph_tests = get_related_tests(seed_files, repo_root, max_tests=_GRAPH_MAX_EXTRA_TESTS)
+        # Test discovery uses extended_seeds so symbol-matched file tests are found.
+        graph_tests = get_related_tests(extended_seeds, repo_root, max_tests=_GRAPH_MAX_EXTRA_TESTS)
         graph_neighbors = get_structural_neighbors(
             seed_files, repo_root, max_neighbors=_GRAPH_MAX_NEIGHBORS
         )
-
-        # Symbol-level routing: find files defining symbols named in the task.
-        # Uses seed + symbol files combined so structural expansion benefits
-        # from both heuristic and symbol-matched starting points.
-        symbol_files: list[str] = []
-        if task.strip():
-            symbol_files = get_task_symbol_files(
-                task, repo_root, max_files=_GRAPH_MAX_SYMBOL_FILES
-            )
 
         enriched = False
         for gf in [*graph_files, *graph_neighbors, *symbol_files]:
@@ -457,6 +538,7 @@ def _build_summary(
     warnings: list[str],
     fallback: bool,
     graph_enriched: bool = False,
+    graph_symbol_routed: bool = False,
 ) -> str:
     """Produce a concise, agent-readable summary paragraph for the context pack."""
     lines: list[str] = []
@@ -479,8 +561,10 @@ def _build_summary(
         first = files[:3]
         lines.append(f"Inspect first: {', '.join(first)}")
 
-    # Graph enrichment note
-    if graph_enriched:
+    # Graph enrichment note — symbol routing takes precedence over generic enrichment note
+    if graph_symbol_routed:
+        lines.append("Routing based on graph symbol match (task mentions symbols, not directory names).")
+    elif graph_enriched:
         lines.append("Context enriched with graph-backed structural relationships.")
 
     # First warning
