@@ -277,6 +277,60 @@ def get_task_symbol_files(
 
 
 # ---------------------------------------------------------------------------
+# File vocabulary
+# ---------------------------------------------------------------------------
+
+
+def get_file_vocabulary(
+    files: list[str],
+    repo_root: str | Path,
+    max_per_file: int = 30,
+) -> dict[str, list[str]]:
+    """Return function and class names per file from the graph.
+
+    For each file path in *files*, queries ``get_nodes_by_file()`` and
+    collects all non-File node names (functions, classes, methods).  This
+    vocabulary is used by the generator for accurate responsibility inference
+    and by the context builder for semantic task scoring.
+
+    Args:
+        files:        Repo-relative file paths to look up.
+        repo_root:    Repo root path — locates graph.db.
+        max_per_file: Max symbol names to return per file (default 30).
+
+    Returns:
+        Dict mapping file_path -> list[symbol_name].
+        Returns ``{}`` gracefully when graph is absent or any error occurs.
+    """
+    if not files:
+        return {}
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return {}
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            if gs.get_stats().total_nodes == 0:
+                return {}
+            vocab: dict[str, list[str]] = {}
+            for fp in files:
+                nodes = gs.get_nodes_by_file(fp)
+                names = [
+                    n.name for n in nodes
+                    if n.kind not in ("File", "Import")
+                    and n.name
+                    and len(n.name) >= 3          # skip single-letter names
+                    and not n.name.startswith("_")  # skip private symbols
+                ]
+                if names:
+                    vocab[fp] = names[:max_per_file]
+            return vocab
+    except Exception as exc:
+        logger.debug("get_file_vocabulary: graph query failed: %s", exc)
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Explain context
 # ---------------------------------------------------------------------------
 

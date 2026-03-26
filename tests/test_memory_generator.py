@@ -17,6 +17,9 @@ import pytest
 from code_review_graph.memory.generator import (
     generate_feature_doc,
     generate_module_doc,
+    _infer_responsibilities,
+    _responsibilities_from_vocabulary,
+    _top_symbols,
 )
 from code_review_graph.memory.metadata import save_confidence_json, save_sources_json
 from code_review_graph.memory.models import FeatureMemory, ModuleMemory
@@ -544,3 +547,119 @@ class TestMemoryInitIntegration:
         out = capsys.readouterr().out
         # Second run should show "unchanged" for all artifacts
         assert "unchanged" in out
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary-based generation: _responsibilities_from_vocabulary, _top_symbols
+# ---------------------------------------------------------------------------
+
+
+class TestResponsibilitiesFromVocabulary:
+    def test_auth_symbols_produce_auth_domain(self):
+        vocab = {"src/auth/tokens.py": ["validate_token", "refresh_token", "TokenStore"]}
+        files = ["src/auth/tokens.py"]
+        result = _responsibilities_from_vocabulary(vocab, files)
+        assert any("auth" in r.lower() for r in result)
+
+    def test_payment_symbols_produce_payments_domain(self):
+        vocab = {"src/billing/charge.py": ["create_charge", "StripeClient", "process_payment"]}
+        files = ["src/billing/charge.py"]
+        result = _responsibilities_from_vocabulary(vocab, files)
+        assert any("payment" in r.lower() or "billing" in r.lower() for r in result)
+
+    def test_multiple_domains_detected(self):
+        vocab = {
+            "src/auth.py": ["login_user", "validate_token"],
+            "src/notify.py": ["send_email", "push_notification"],
+        }
+        files = ["src/auth.py", "src/notify.py"]
+        result = _responsibilities_from_vocabulary(vocab, files)
+        assert len(result) >= 2
+
+    def test_no_matching_symbols_returns_empty(self):
+        vocab = {"src/utils.py": ["foo", "bar", "baz"]}
+        result = _responsibilities_from_vocabulary(vocab, ["src/utils.py"])
+        assert result == []
+
+    def test_files_not_in_vocab_are_skipped(self):
+        vocab = {"src/auth.py": ["login_user"]}
+        # file not in vocab
+        result = _responsibilities_from_vocabulary(vocab, ["src/other.py"])
+        assert result == []
+
+    def test_infer_responsibilities_uses_vocabulary_first(self):
+        vocab = {"src/billing/charge.py": ["process_payment", "create_invoice"]}
+        files = ["src/billing/charge.py"]
+        result = _infer_responsibilities(files, vocabulary=vocab)
+        assert len(result) >= 1
+        assert any("payment" in r.lower() or "billing" in r.lower() for r in result)
+
+    def test_infer_responsibilities_falls_back_to_stems_without_vocab(self):
+        files = ["src/billing/models.py"]
+        result = _infer_responsibilities(files, vocabulary=None)
+        assert any("model" in r.lower() or "data" in r.lower() for r in result)
+
+    def test_infer_responsibilities_falls_back_when_vocab_produces_nothing(self):
+        vocab = {"src/misc.py": ["foo", "bar"]}  # no domain keywords
+        files = ["src/misc/models.py"]
+        result = _infer_responsibilities(files, vocabulary=vocab)
+        # falls back to stem heuristics for "models"
+        assert any("model" in r.lower() or "data" in r.lower() for r in result)
+
+
+class TestTopSymbols:
+    def test_returns_symbol_names(self):
+        vocab = {"src/auth.py": ["login", "validate_token", "TokenStore"]}
+        result = _top_symbols(vocab, ["src/auth.py"])
+        assert "login" in result or "TokenStore" in result or "validate_token" in result
+
+    def test_respects_max_total(self):
+        vocab = {"src/a.py": [f"func_{i}" for i in range(20)]}
+        result = _top_symbols(vocab, ["src/a.py"], max_total=5)
+        assert len(result) <= 5
+
+    def test_files_not_in_vocab_skipped(self):
+        vocab = {"src/auth.py": ["login"]}
+        result = _top_symbols(vocab, ["src/other.py"])
+        assert result == []
+
+    def test_empty_vocab_returns_empty(self):
+        result = _top_symbols({}, ["src/auth.py"])
+        assert result == []
+
+
+class TestVocabularyInGeneratedDocs:
+    def test_feature_doc_includes_key_symbols_section(self):
+        feature = make_feature(
+            name="auth",
+            files=["src/auth/tokens.py"],
+        )
+        vocab = {"src/auth/tokens.py": ["validate_token", "TokenStore", "refresh_token"]}
+        doc = generate_feature_doc(feature, vocabulary=vocab)
+        assert "Key symbols" in doc
+        assert "validate_token" in doc or "TokenStore" in doc
+
+    def test_feature_doc_without_vocab_has_no_key_symbols(self):
+        feature = make_feature(name="auth", files=["src/auth/tokens.py"])
+        doc = generate_feature_doc(feature, vocabulary=None)
+        assert "Key symbols" not in doc
+
+    def test_module_doc_includes_key_symbols_section(self):
+        module = make_module(
+            name="auth",
+            files=["src/auth/tokens.py"],
+        )
+        vocab = {"src/auth/tokens.py": ["validate_token", "TokenStore"]}
+        doc = generate_module_doc(module, vocabulary=vocab)
+        assert "Key symbols" in doc
+
+    def test_module_doc_responsibilities_from_vocab(self):
+        module = make_module(
+            name="payments",
+            files=["src/billing/charge.py"],
+        )
+        vocab = {"src/billing/charge.py": ["process_payment", "create_invoice", "StripeClient"]}
+        doc = generate_module_doc(module, vocabulary=vocab)
+        assert "Responsibilities" in doc
+        # Should show payment/billing domain, not just stem heuristic
+        assert "payment" in doc.lower() or "billing" in doc.lower()

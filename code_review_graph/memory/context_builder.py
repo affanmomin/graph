@@ -90,7 +90,8 @@ _GRAPH_MAX_SYMBOL_FILES = 3   # max new files added via symbol-level task routin
 _W_NAME = 2.0      # strongest signal: task mentions the feature/module by name
 _W_FILE_STEM = 1.0  # task mentions a file's stem (e.g. "login" → login.py)
 _W_PATH_DIR = 1.5   # task mentions a directory component (e.g. "billing/")
-_W_TOTAL = _W_NAME + _W_FILE_STEM + _W_PATH_DIR  # 4.5
+_W_SYMBOL = 1.0    # task tokens match function/class names from graph vocabulary
+_W_TOTAL = _W_NAME + _W_FILE_STEM + _W_PATH_DIR  # 4.5 (without symbol component)
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +105,7 @@ def build_context_pack(
     modules: list[ModuleMemory],
     overrides: Overrides | None = None,
     repo_root: Path | None = None,
+    vocabulary: dict[str, list[str]] | None = None,
 ) -> TaskContextPack:
     """Build a focused context pack for *task*.
 
@@ -118,6 +120,11 @@ def build_context_pack(
                    the heuristic file list is enriched with structurally related
                    files and tests discovered via the graph engine.  Falls back
                    to heuristic-only behaviour when omitted or graph is absent.
+        vocabulary: Optional dict mapping file_path -> list[symbol_name] from the
+                   graph.  When provided, symbol names are added to the scoring
+                   vocabulary so tasks like "fix token expiry" match files
+                   containing ``validate_token()`` even without a directory
+                   keyword match.
 
     Returns:
         A populated :class:`~models.TaskContextPack`.  Never raises —
@@ -125,13 +132,23 @@ def build_context_pack(
     """
     task_tokens = _tokenize(task)
 
+    # If vocabulary not passed in, try to fetch from graph
+    if vocabulary is None and repo_root is not None:
+        try:
+            from .graph_bridge import get_file_vocabulary, graph_available
+            if graph_available(repo_root):
+                all_files = list({f for item in [*features, *modules] for f in item.files})
+                vocabulary = get_file_vocabulary(all_files, repo_root)
+        except Exception:
+            vocabulary = None
+
     # Score every feature and module
     scored_features = sorted(
-        ((f, _score(task_tokens, f.name, f.files, f.confidence)) for f in features),
+        ((f, _score(task_tokens, f.name, f.files, f.confidence, vocabulary)) for f in features),
         key=lambda x: (-x[1], x[0].name),
     )
     scored_modules = sorted(
-        ((m, _score(task_tokens, m.name, m.files, m.confidence)) for m in modules),
+        ((m, _score(task_tokens, m.name, m.files, m.confidence, vocabulary)) for m in modules),
         key=lambda x: (-x[1], x[0].name),
     )
 
@@ -214,8 +231,16 @@ def _score(
     name: str,
     files: list[str],
     confidence: float,
+    vocabulary: dict[str, list[str]] | None = None,
 ) -> float:
     """Compute a relevance score for a feature/module against *task_tokens*.
+
+    Four scoring components (weights defined in module constants):
+    1. Name overlap    — task tokens appear in the feature/module name
+    2. File-stem overlap — task tokens appear in file stems
+    3. Path-dir overlap  — task tokens appear in directory components
+    4. Symbol overlap    — task tokens appear in function/class names from graph
+                           (only when *vocabulary* is provided)
 
     Returns a float approximately in [0.0, 1.0].
     """
@@ -242,7 +267,28 @@ def _score(
             dir_tokens.update(re.split(r"[-_]", part.lower()))
     dir_overlap = len(task_tokens & dir_tokens) / n
 
-    raw = (_W_NAME * name_overlap + _W_FILE_STEM * stem_overlap + _W_PATH_DIR * dir_overlap) / _W_TOTAL
+    # Component 4: symbol overlap — function/class names from graph vocabulary
+    symbol_overlap = 0.0
+    if vocabulary:
+        sym_tokens: set[str] = set()
+        for fp in files:
+            for sym in vocabulary.get(fp, []):
+                sym_tokens.update(re.split(r"[-_]", sym.lower()))
+        symbol_overlap = min(len(task_tokens & sym_tokens) / n, 1.0)
+
+    # Symbol weight: same as file-stem (1.0) — it's a direct content signal
+    # Total weight expands by _W_SYMBOL when vocabulary is non-empty
+    if vocabulary:
+        w_total = _W_TOTAL + _W_SYMBOL
+        raw = (
+            _W_NAME * name_overlap
+            + _W_FILE_STEM * stem_overlap
+            + _W_PATH_DIR * dir_overlap
+            + _W_SYMBOL * symbol_overlap
+        ) / w_total
+    else:
+        raw = (_W_NAME * name_overlap + _W_FILE_STEM * stem_overlap + _W_PATH_DIR * dir_overlap) / _W_TOTAL
+
     # Confidence soft-weighting: high-confidence classifications rank higher
     return round(raw * (0.4 + 0.6 * confidence), 4)
 

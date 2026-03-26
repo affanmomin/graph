@@ -367,7 +367,10 @@ def _render_inspect_first(scan: RepoScan) -> str:
 # ---------------------------------------------------------------------------
 
 
-def generate_feature_doc(feature: FeatureMemory) -> str:
+def generate_feature_doc(
+    feature: FeatureMemory,
+    vocabulary: dict[str, list[str]] | None = None,
+) -> str:
     """Generate content for ``.agent-memory/features/<slug>.md``.
 
     Args:
@@ -397,6 +400,15 @@ def generate_feature_doc(feature: FeatureMemory) -> str:
         "Main files",
         _render_file_list(feature.files, "No source files detected."),
     ))
+
+    # Key symbols — from graph vocabulary (function/class names)
+    if vocabulary:
+        key_symbols = _top_symbols(vocabulary, feature.files)
+        if key_symbols:
+            sections.append(render_markdown_section(
+                "Key symbols",
+                ", ".join(f"`{s}`" for s in key_symbols),
+            ))
 
     # Likely entry points — first file alphabetically that isn't a model/schema
     entry_points = _infer_entry_points(feature.files)
@@ -436,7 +448,10 @@ def generate_feature_doc(feature: FeatureMemory) -> str:
 # ---------------------------------------------------------------------------
 
 
-def generate_module_doc(module: ModuleMemory) -> str:
+def generate_module_doc(
+    module: ModuleMemory,
+    vocabulary: dict[str, list[str]] | None = None,
+) -> str:
     """Generate content for ``.agent-memory/modules/<slug>.md``.
 
     Args:
@@ -461,13 +476,22 @@ def generate_module_doc(module: ModuleMemory) -> str:
         _module_purpose(module),
     ))
 
-    # Responsibilities — inferred from file names
-    responsibilities = _infer_responsibilities(module.files)
+    # Responsibilities — from graph vocabulary first, file stems as fallback
+    responsibilities = _infer_responsibilities(module.files, vocabulary=vocabulary)
     if responsibilities:
         sections.append(render_markdown_section(
             "Responsibilities",
             "\n".join(f"- {r}" for r in responsibilities),
         ))
+
+    # Key symbols — from graph vocabulary (function/class names)
+    if vocabulary:
+        key_symbols = _top_symbols(vocabulary, module.files)
+        if key_symbols:
+            sections.append(render_markdown_section(
+                "Key symbols",
+                ", ".join(f"`{s}`" for s in key_symbols),
+            ))
 
     # Files
     sections.append(render_markdown_section(
@@ -569,9 +593,25 @@ def _module_purpose(module: ModuleMemory) -> str:
     )
 
 
-def _infer_responsibilities(files: list[str]) -> list[str]:
-    """Infer likely responsibilities from the file stems in this module."""
-    # Map common file stems to responsibility descriptions
+def _infer_responsibilities(
+    files: list[str],
+    vocabulary: dict[str, list[str]] | None = None,
+) -> list[str]:
+    """Infer likely responsibilities, using graph vocabulary when available.
+
+    Strategy:
+    1. If *vocabulary* is provided (function/class names from graph.db), map
+       symbol name tokens to semantic domains.  This produces accurate labels
+       like "authentication and token management" instead of guessing from
+       file stems.
+    2. Fall back to file-stem heuristics when vocabulary is absent or empty.
+    """
+    if vocabulary:
+        vocab_result = _responsibilities_from_vocabulary(vocabulary, files)
+        if vocab_result:
+            return vocab_result[:6]
+
+    # Fallback: stem-based heuristics
     stem_hints: dict[str, str] = {
         "models": "data models / ORM definitions",
         "model": "data model definitions",
@@ -609,7 +649,78 @@ def _infer_responsibilities(files: list[str]) -> list[str]:
         if stem in stem_hints and stem_hints[stem] not in seen:
             found.append(stem_hints[stem])
             seen.add(stem_hints[stem])
-    return found[:6]  # cap to avoid bloat
+    return found[:6]
+
+
+def _responsibilities_from_vocabulary(
+    vocabulary: dict[str, list[str]],
+    files: list[str],
+) -> list[str]:
+    """Derive responsibility labels from actual function/class names in the graph.
+
+    Maps symbol name tokens to semantic domains using a keyword→domain table.
+    Multiple symbols mapping to the same domain collapse into one label.
+    """
+    # keyword token → human label  (longest/most-specific match wins implicitly)
+    _DOMAIN_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
+        (("auth", "authenticat", "login", "logout", "session", "credential", "permission", "jwt", "token", "oauth"), "authentication and authorisation"),
+        (("payment", "billing", "invoice", "charge", "stripe", "subscription", "price", "checkout"), "payments and billing"),
+        (("user", "account", "profile", "signup", "register", "password", "email"), "user management"),
+        (("notif", "email", "sms", "push", "webhook", "alert", "message", "send"), "notifications and messaging"),
+        (("route", "endpoint", "controller", "handler", "view", "api", "request", "response", "middleware"), "request handling and routing"),
+        (("model", "schema", "orm", "database", "db", "query", "migration", "entity", "record"), "data models and persistence"),
+        (("cache", "redis", "memcache", "ttl", "invalidat"), "caching"),
+        (("task", "job", "worker", "queue", "celery", "async", "background", "schedule"), "background jobs and task processing"),
+        (("test", "mock", "fixture", "assert", "expect", "spec"), "test utilities"),
+        (("config", "setting", "env", "constant", "flag", "feature"), "configuration"),
+        (("util", "helper", "common", "shared", "format", "parse", "convert", "transform"), "shared utilities"),
+        (("log", "trace", "metric", "monitor", "telemetry", "observ"), "observability and logging"),
+        (("upload", "file", "storage", "s3", "blob", "media", "image"), "file and media handling"),
+        (("search", "index", "elastic", "solr", "query", "filter", "sort"), "search and indexing"),
+        (("graph", "node", "edge", "tree", "traverse", "bfs", "dfs"), "graph and tree operations"),
+        (("render", "template", "component", "view", "html", "jsx", "tsx", "style"), "UI rendering"),
+        (("import", "export", "parser", "lexer", "ast", "transpil", "compil"), "parsing and compilation"),
+        (("rate", "limit", "throttle", "quota", "bucket"), "rate limiting and throttling"),
+        (("encrypt", "decrypt", "hash", "sign", "verify", "ssl", "tls", "crypto"), "cryptography and security"),
+        (("websocket", "socket", "stream", "event", "pubsub", "channel"), "real-time and streaming"),
+    ]
+
+    # Collect all symbol names across relevant files
+    all_symbols: list[str] = []
+    for fp in files:
+        all_symbols.extend(vocabulary.get(fp, []))
+
+    if not all_symbols:
+        return []
+
+    # For each symbol, check which domain keywords appear in its name
+    matched_domains: dict[str, int] = {}  # domain -> match count
+    for symbol in all_symbols:
+        sym_lower = symbol.lower()
+        for keywords, domain in _DOMAIN_KEYWORDS:
+            if any(kw in sym_lower for kw in keywords):
+                matched_domains[domain] = matched_domains.get(domain, 0) + 1
+
+    # Return domains sorted by match count (most-evidenced first)
+    return [d for d, _ in sorted(matched_domains.items(), key=lambda x: -x[1])]
+
+
+def _top_symbols(vocabulary: dict[str, list[str]], files: list[str], max_total: int = 12) -> list[str]:
+    """Return the most representative symbol names across *files*.
+
+    Picks up to *max_total* names, preferring shorter names (more likely to be
+    meaningful public API) and deduplicating.
+    """
+    seen: set[str] = set()
+    symbols: list[str] = []
+    for fp in files:
+        for name in vocabulary.get(fp, []):
+            if name not in seen:
+                seen.add(name)
+                symbols.append(name)
+    # Prefer shorter names (public API) over long internal names
+    symbols.sort(key=lambda s: (len(s), s))
+    return symbols[:max_total]
 
 
 def _module_risks(module: ModuleMemory) -> str:

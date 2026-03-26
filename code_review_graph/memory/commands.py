@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,16 @@ def run_memory_init_pipeline(root: Path) -> dict:
     features = classify_features(root, scan)
     modules = classify_modules(root, scan)
 
+    # 2b. Fetch graph vocabulary (function/class names) for content-aware generation
+    vocabulary: dict[str, list[str]] = {}
+    try:
+        from .graph_bridge import get_file_vocabulary, graph_available
+        if graph_available(root):
+            all_files = list({f for item in [*features, *modules] for f in item.files})
+            vocabulary = get_file_vocabulary(all_files, root)
+    except Exception:
+        vocabulary = {}
+
     # 3. Ensure directory tree
     dirs = ensure_memory_dirs(root)
 
@@ -137,7 +148,10 @@ def run_memory_init_pipeline(root: Path) -> dict:
     for feature in features:
         slug = feature.slug()
         rel = f".agent-memory/features/{slug}.md"
-        st = write_text_if_changed(dirs["features"] / f"{slug}.md", generate_feature_doc(feature))
+        st = write_text_if_changed(
+            dirs["features"] / f"{slug}.md",
+            generate_feature_doc(feature, vocabulary=vocabulary or None),
+        )
         write_statuses[rel] = st
         feature_statuses.append((rel, st))
         artifacts.append({"artifact_id": f"feature:{slug}", "artifact_type": "feature",
@@ -148,7 +162,10 @@ def run_memory_init_pipeline(root: Path) -> dict:
     for module in modules:
         slug = module.slug()
         rel = f".agent-memory/modules/{slug}.md"
-        st = write_text_if_changed(dirs["modules"] / f"{slug}.md", generate_module_doc(module))
+        st = write_text_if_changed(
+            dirs["modules"] / f"{slug}.md",
+            generate_module_doc(module, vocabulary=vocabulary or None),
+        )
         write_statuses[rel] = st
         module_statuses.append((rel, st))
         artifacts.append({"artifact_id": f"module:{slug}", "artifact_type": "module",
@@ -224,7 +241,9 @@ def memory_init_command(args: argparse.Namespace) -> None:
     print(f"repo-memory: init")
     print(f"  scanning {repo_root} ...")
 
+    _t0 = time.perf_counter()
     result = run_memory_init_pipeline(repo_root)
+    _duration = time.perf_counter() - _t0
 
     scan = result["scan"]
     features = result["features"]
@@ -310,7 +329,40 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print("  Without it, Claude Code will NOT auto-load .agent-memory/CLAUDE.md.")
         print()
 
+    # Quality verdict
+    avg_conf = (
+        sum(f.confidence for f in features) / len(features) if features else
+        sum(m.confidence for m in modules) / len(modules) if modules else 0.0
+    )
+    if len(features) >= 2 or len(modules) >= 3:
+        quality = "good"
+        quality_msg = f"  Quality: good — {len(features)} features + {len(modules)} modules detected"
+    elif len(features) == 0 and len(modules) <= 1:
+        quality = "sparse"
+        quality_msg = (
+            f"  Quality: sparse — 0 features detected. "
+            "Add domain corrections in .agent-memory/overrides/ or run `repomind build` first."
+        )
+    else:
+        quality = "partial"
+        quality_msg = f"  Quality: partial — {len(features)} features + {len(modules)} modules"
+    print(quality_msg)
+    print(f"  Completed in {_duration:.2f}s")
+    print()
     print("  Done. Commit .agent-memory/ to share memory with your team.")
+
+    # Record metrics
+    from .graph_bridge import graph_available
+    from .telemetry import record
+    record("init", {
+        "duration_s": round(_duration, 3),
+        "feature_count": len(features),
+        "module_count": len(modules),
+        "avg_confidence": round(avg_conf, 3),
+        "artifact_count": len(write_statuses),
+        "graph_used": graph_available(repo_root),
+        "quality": quality,
+    }, repo_root)
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +411,10 @@ def memory_refresh_command(args: argparse.Namespace) -> None:
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
 
+    _t0 = time.perf_counter()
     plan = plan_refresh(changed_files, features, modules, full=full, repo_root=repo_root)
     result = execute_refresh(plan, repo_root, features, modules, scan)
+    _duration = time.perf_counter() - _t0
 
     print(f"  mode          : {result['mode']}")
     print(f"  changed files : {len(result['changed_files'])}")
@@ -379,7 +433,17 @@ def memory_refresh_command(args: argparse.Namespace) -> None:
             print(f"    {a}")
         print()
 
+    print(f"  Completed in {_duration:.2f}s")
     print("  Done.")
+
+    from .telemetry import record
+    record("refresh", {
+        "duration_s": round(_duration, 3),
+        "changed_files": len(result["changed_files"]),
+        "artifacts_refreshed": len(result["artifacts_updated"]),
+        "artifacts_skipped": len(result["artifacts_skipped"]),
+        "mode": result["mode"],
+    }, repo_root)
 
 
 # ---------------------------------------------------------------------------
@@ -414,8 +478,22 @@ def memory_explain_command(args: argparse.Namespace) -> None:
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
 
+    _t0 = time.perf_counter()
     match = match_target(target, agent_memory, features, modules)
-    print(explain_match(match, agent_memory, repo_root=repo_root))
+    output = explain_match(match, agent_memory, repo_root=repo_root)
+    _duration = time.perf_counter() - _t0
+    print(output)
+
+    from .telemetry import record
+    obj = match.obj
+    record("explain", {
+        "duration_s": round(_duration, 3),
+        "target": target[:60],
+        "match_kind": match.kind,
+        "found": match.found(),
+        "confidence": round(getattr(obj, "confidence", 0.0), 3) if obj else None,
+        "files_count": len(getattr(obj, "files", [])) if obj else 0,
+    }, repo_root)
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +525,7 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     # Classify — fast, deterministic, no LLMs
+    _t0 = time.perf_counter()
     scan = scan_repo(repo_root)
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
@@ -455,11 +534,32 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     overrides = load_overrides(_agent_memory_root(repo_root))
 
     pack = build_context_pack(task, features, modules, overrides=overrides, repo_root=repo_root)
+    _duration = time.perf_counter() - _t0
 
     if as_json:
         _print_pack_json(pack)
     else:
         _print_pack_text(pack)
+
+    # Estimate tokens (4 chars ≈ 1 token heuristic)
+    _tokens = sum(
+        len((repo_root / f).read_text(encoding="utf-8", errors="replace"))
+        for f in pack.relevant_files
+        if (repo_root / f).is_file()
+    ) // 4
+
+    from .telemetry import record
+    record("prepare-context", {
+        "duration_s": round(_duration, 3),
+        "task_len": len(task),
+        "features_matched": len(pack.relevant_features),
+        "modules_matched": len(pack.relevant_modules),
+        "files_returned": len(pack.relevant_files),
+        "tests_returned": len(pack.relevant_tests),
+        "tokens_estimated": _tokens,
+        "fallback": any("No specific area matched" in w for w in pack.warnings),
+        "graph_enriched": "graph-backed" in pack.summary.lower(),
+    }, repo_root)
 
 
 def _print_pack_text(pack) -> None:
@@ -553,8 +653,24 @@ def memory_changed_command(args: argparse.Namespace) -> None:
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
 
+    _t0 = time.perf_counter()
     match = match_target(target, agent_memory, features, modules)
-    print(changed_match(match, agent_memory, repo_root=repo_root))
+    output = changed_match(match, agent_memory, repo_root=repo_root)
+    _duration = time.perf_counter() - _t0
+    print(output)
+
+    from .metadata import load_freshness_json
+    from .telemetry import record
+    freshness = load_freshness_json(agent_memory / "metadata")
+    from .graph_bridge import graph_available
+    record("changed", {
+        "duration_s": round(_duration, 3),
+        "target": target[:60],
+        "match_kind": match.kind,
+        "found": match.found(),
+        "has_freshness": freshness is not None,
+        "graph_used": graph_available(repo_root),
+    }, repo_root)
 
 
 # ---------------------------------------------------------------------------
@@ -607,3 +723,27 @@ def memory_annotate_command(args: argparse.Namespace) -> None:
         print()
         print("  Then re-run `memory init` to regenerate rules/conventions.md")
         print("  with your overrides applied.")
+
+
+# ---------------------------------------------------------------------------
+# memory stats
+# ---------------------------------------------------------------------------
+
+
+def memory_stats_command(args: argparse.Namespace) -> None:
+    """Show a performance summary of recent memory command runs.
+
+    Reads the local ``.code-review-graph/memory-metrics.jsonl`` log and prints
+    timing, quality scores, and aggregate stats.  The log is local-only and
+    never committed.
+    """
+    from .telemetry import print_stats
+
+    repo_root = _resolve_repo_root(args)
+    last = getattr(args, "last", 20)
+
+    print("repo-memory: stats")
+    print(f"  repo root : {repo_root}")
+    print()
+    print_stats(repo_root, last=last)
+

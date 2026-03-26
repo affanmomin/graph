@@ -18,6 +18,7 @@ import pytest
 
 from code_review_graph.memory.graph_bridge import (
     _is_test_file,
+    get_file_vocabulary,
     get_related_files,
     get_related_tests,
     get_structural_neighbors,
@@ -1046,3 +1047,94 @@ class TestEnrichWithGraphNeighborsAndSymbols:
 
         assert "src/auth/verify.py" in pack.relevant_files
         assert "Context enriched" not in pack.summary
+
+
+# ---------------------------------------------------------------------------
+# get_file_vocabulary
+# ---------------------------------------------------------------------------
+
+
+class TestGetFileVocabulary:
+    """Tests for get_file_vocabulary — graph.db absent and present."""
+
+    def test_returns_empty_when_no_graph(self, tmp_path: Path):
+        result = get_file_vocabulary(["src/auth.py"], tmp_path)
+        assert result == {}
+
+    def test_returns_empty_for_empty_files_list(self, tmp_path: Path):
+        result = get_file_vocabulary([], tmp_path)
+        assert result == {}
+
+    def test_returns_symbol_names_from_graph(self, tmp_path: Path):
+        from unittest.mock import MagicMock, patch
+
+        # Build a fake node list
+        def _make_node(name, kind, fp):
+            n = MagicMock()
+            n.name = name
+            n.kind = kind
+            n.file_path = fp
+            return n
+
+        nodes = [
+            _make_node("validate_token", "function", "src/auth.py"),
+            _make_node("TokenStore", "class", "src/auth.py"),
+            _make_node("_private", "function", "src/auth.py"),   # should be filtered
+            _make_node("ab", "function", "src/auth.py"),         # too short
+            _make_node("import_x", "Import", "src/auth.py"),    # kind=Import filtered
+        ]
+
+        stats = MagicMock()
+        stats.total_nodes = 5
+        store = MagicMock()
+        store.__enter__ = lambda s: s
+        store.__exit__ = MagicMock(return_value=False)
+        store.get_stats.return_value = stats
+        store.get_nodes_by_file.return_value = nodes
+
+        # Create a fake graph.db so _db_path check passes
+        db_dir = tmp_path / ".code-review-graph"
+        db_dir.mkdir()
+        (db_dir / "graph.db").touch()
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_file_vocabulary(["src/auth.py"], tmp_path)
+
+        assert "src/auth.py" in result
+        assert "validate_token" in result["src/auth.py"]
+        assert "TokenStore" in result["src/auth.py"]
+        # Private and short names filtered out
+        assert "_private" not in result["src/auth.py"]
+        assert "ab" not in result["src/auth.py"]
+
+    def test_filters_import_and_file_nodes(self, tmp_path: Path):
+        from unittest.mock import MagicMock, patch
+
+        def _make_node(name, kind):
+            n = MagicMock()
+            n.name = name
+            n.kind = kind
+            n.file_path = "src/mod.py"
+            return n
+
+        nodes = [
+            _make_node("MyClass", "class"),
+            _make_node("src/mod.py", "File"),   # kind=File filtered
+            _make_node("os.path", "Import"),    # kind=Import filtered
+        ]
+        stats = MagicMock()
+        stats.total_nodes = 3
+        store = MagicMock()
+        store.__enter__ = lambda s: s
+        store.__exit__ = MagicMock(return_value=False)
+        store.get_stats.return_value = stats
+        store.get_nodes_by_file.return_value = nodes
+
+        db_dir = tmp_path / ".code-review-graph"
+        db_dir.mkdir()
+        (db_dir / "graph.db").touch()
+
+        with patch("code_review_graph.graph.GraphStore", return_value=store):
+            result = get_file_vocabulary(["src/mod.py"], tmp_path)
+
+        assert result.get("src/mod.py", []) == ["MyClass"]

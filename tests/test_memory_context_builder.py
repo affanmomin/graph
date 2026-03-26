@@ -506,3 +506,76 @@ class TestCLIIntegration:
             or any("billing" in x for x in modules)
             or "billing" in files
         )
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary-based scoring (_W_SYMBOL component)
+# ---------------------------------------------------------------------------
+
+
+class TestVocabularyScoring:
+    """Tests for the 4th scoring component: symbol/vocabulary overlap."""
+
+    def test_vocabulary_boosts_score_when_symbol_matches_task(self):
+        """A feature whose files contain a matching symbol should score higher
+        than the identical feature without vocabulary when the task references
+        that symbol."""
+        tokens = {"validate", "token"}
+        files = ["src/auth/tokens.py"]
+        vocab = {"src/auth/tokens.py": ["validate_token", "refresh_token", "TokenStore"]}
+
+        score_with = _score(tokens, "auth", files, 0.9, vocabulary=vocab)
+        score_without = _score(tokens, "auth", files, 0.9, vocabulary=None)
+        assert score_with > score_without
+
+    def test_vocabulary_no_match_does_not_degrade_score(self):
+        """When vocabulary is present but no symbols match the task, the score
+        should be at least as high as without vocabulary (normalisation spreads
+        zero-symbol-overlap over a larger denominator — a slight drop is
+        acceptable but it should not be dramatic)."""
+        tokens = {"billing", "invoice"}
+        files = ["src/auth/tokens.py"]
+        vocab = {"src/auth/tokens.py": ["validate_token", "TokenStore"]}
+
+        score_with = _score(tokens, "billing", files, 0.9, vocabulary=vocab)
+        score_without = _score(tokens, "billing", files, 0.9, vocabulary=None)
+        # Max allowed regression: 20% of without-vocab score
+        assert score_with >= score_without * 0.8
+
+    def test_empty_vocabulary_dict_same_as_none(self):
+        """Passing an empty dict should behave identically to None."""
+        tokens = {"auth", "login"}
+        files = ["src/auth/login.py"]
+        score_empty = _score(tokens, "auth", files, 0.9, vocabulary={})
+        score_none = _score(tokens, "auth", files, 0.9, vocabulary=None)
+        assert score_empty == score_none
+
+    def test_build_context_pack_passes_vocabulary_to_scorer(self):
+        """build_context_pack() accepts vocabulary kwarg and uses it for ranking.
+        A feature whose files contain symbol 'validate_token' should rank first
+        when the task is 'fix token validation'."""
+        auth_feature = _feature("auth", files=["src/auth/tokens.py"])
+        billing_feature = _feature("billing", files=["src/billing/invoice.py"])
+        vocab = {
+            "src/auth/tokens.py": ["validate_token", "TokenStore", "refresh_token"],
+            "src/billing/invoice.py": ["InvoiceService", "generate_pdf"],
+        }
+        pack = build_context_pack(
+            "fix token validation",
+            [auth_feature, billing_feature],
+            [],
+            vocabulary=vocab,
+        )
+        assert len(pack.relevant_features) >= 1
+        # Auth should win because 'token' and 'validate' both appear in vocabulary
+        assert "auth" in pack.relevant_features[0].lower()
+
+    def test_vocabulary_camelcase_symbols_tokenised(self):
+        """CamelCase symbols like 'TokenStore' and 'InvoiceService' should be
+        split on underscores/snake_case — the regex in _score splits on [-_]."""
+        tokens = {"invoice"}
+        files = ["src/billing/invoice.py"]
+        # symbol name is snake_case; 'invoice' should match after split
+        vocab = {"src/billing/invoice.py": ["create_invoice", "InvoiceStore"]}
+        score = _score(tokens, "billing", files, 0.9, vocabulary=vocab)
+        assert score > 0

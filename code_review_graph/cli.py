@@ -93,6 +93,7 @@ def _print_banner() -> None:
     {m}memory prepare-context{r}  Build task context pack for Claude Code
     {m}memory changed{r} {d}<target>{r}  Show recent changes in an area
     {m}memory annotate{r}         Edit human override guidance
+    {m}memory stats{r}            Performance and quality metrics
 
   {d}Run{r} {b}code-review-graph <command> --help{r} {d}for details{r}
 """)
@@ -243,6 +244,24 @@ def _add_memory_subparsers(memory_cmd: argparse.ArgumentParser) -> None:
     mem_changed.add_argument("target", help="Feature name, module name, or file path")
     mem_changed.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
+    # memory stats
+    mem_stats = mem_sub.add_parser(
+        "stats",
+        help="Show performance and quality metrics from recent memory command runs",
+        description=(
+            "Display a summary of recent memory command runs from the local\n"
+            "metrics log (.code-review-graph/memory-metrics.jsonl).\n\n"
+            "Shows: timing, classification quality, context pack sizes,\n"
+            "token estimates, fallback rate, and graph enrichment usage.\n\n"
+            "Example:\n"
+            "  repomind memory stats\n"
+            "  repomind memory stats --last 50"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mem_stats.add_argument("--repo", default=None, help="Repository root (auto-detected)")
+    mem_stats.add_argument("--last", type=int, default=20, help="Number of recent runs to show (default: 20)")
+
     # memory annotate
     mem_annotate = mem_sub.add_parser(
         "annotate",
@@ -271,6 +290,7 @@ def _handle_memory(args: argparse.Namespace) -> None:
         memory_init_command,
         memory_prepare_context_command,
         memory_refresh_command,
+        memory_stats_command,
     )
 
     sub = getattr(args, "memory_command", None)
@@ -282,6 +302,7 @@ def _handle_memory(args: argparse.Namespace) -> None:
         "prepare-context": memory_prepare_context_command,
         "changed": memory_changed_command,
         "annotate": memory_annotate_command,
+        "stats": memory_stats_command,
     }
 
     if sub in dispatch:
@@ -297,6 +318,7 @@ def _handle_memory(args: argparse.Namespace) -> None:
         print("  prepare-context   Build task context pack for Claude Code")
         print("  changed <target>  Show recent changes in a feature, module, or path")
         print("  annotate          Edit human override guidance")
+        print("  stats             Show performance and quality metrics")
         print()
         print("Run 'code-review-graph memory <command> --help' for details.")
 
