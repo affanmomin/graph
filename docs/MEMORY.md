@@ -1,6 +1,6 @@
 # Repo Memory — Feature Guide
 
-`code-review-graph` generates durable Markdown artifacts committed to Git under `.agent-memory/`. Claude Code reads these at session start instead of requiring re-explanation of the codebase every time.
+`repomind` generates durable Markdown artifacts committed to Git under `.agent-memory/`. Claude Code reads these at session start instead of requiring re-explanation of the codebase every time.
 
 ---
 
@@ -27,10 +27,10 @@
 
 ```bash
 # 1. Build the code graph (needed once for full structural context)
-code-review-graph build
+repomind build
 
 # 2. Generate memory artifacts
-code-review-graph memory init
+repomind memory init
 
 # 3. Load memory into every Claude Code session
 #    Add this line to your repo's CLAUDE.md:
@@ -50,8 +50,8 @@ git commit -m "chore: add repo memory"
 Scan the repo and generate all `.agent-memory/` artifacts. Safe to re-run — only changed content is written.
 
 ```bash
-code-review-graph memory init
-code-review-graph memory init --repo /path/to/repo
+repomind memory init
+repomind memory init --repo /path/to/repo
 ```
 
 ### `memory refresh`
@@ -59,8 +59,8 @@ code-review-graph memory init --repo /path/to/repo
 Incrementally regenerate artifacts affected by recent changes. Faster than a full init.
 
 ```bash
-code-review-graph memory refresh         # incremental (git-diff based)
-code-review-graph memory refresh --full  # regenerate everything
+repomind memory refresh         # incremental (git-diff based)
+repomind memory refresh --full  # regenerate everything
 ```
 
 ### `memory explain <target>`
@@ -68,9 +68,9 @@ code-review-graph memory refresh --full  # regenerate everything
 Print the stored memory for a feature, module, or file path.
 
 ```bash
-code-review-graph memory explain authentication
-code-review-graph memory explain src/payments/
-code-review-graph memory explain code_review_graph/memory/commands.py
+repomind memory explain authentication
+repomind memory explain src/payments/
+repomind memory explain code_review_graph/memory/commands.py
 ```
 
 ### `memory prepare-context "<task>"`
@@ -78,8 +78,8 @@ code-review-graph memory explain code_review_graph/memory/commands.py
 Build a focused context pack for a natural-language task — relevant features, files, tests, and warnings — ready to inject into a Claude Code session.
 
 ```bash
-code-review-graph memory prepare-context "add rate limiting to the API"
-code-review-graph memory prepare-context "fix the auth token refresh bug" --json
+repomind memory prepare-context "add rate limiting to the API"
+repomind memory prepare-context "fix the auth token refresh bug" --json
 ```
 
 ### `memory changed <target>`
@@ -87,8 +87,8 @@ code-review-graph memory prepare-context "fix the auth token refresh bug" --json
 Show recent git changes in an area and which memory artifacts are affected.
 
 ```bash
-code-review-graph memory changed authentication
-code-review-graph memory changed src/api/
+repomind memory changed authentication
+repomind memory changed src/api/
 ```
 
 ### `memory annotate`
@@ -96,7 +96,7 @@ code-review-graph memory changed src/api/
 Open (or scaffold) `.agent-memory/overrides/global.yaml` to add human corrections.
 
 ```bash
-code-review-graph memory annotate
+repomind memory annotate
 ```
 
 ---
@@ -152,18 +152,18 @@ git add .agent-memory/
 git commit -m "chore: add repo memory"
 
 # After significant changes
-code-review-graph memory refresh
+repomind memory refresh
 git add .agent-memory/
 git commit -m "chore: refresh repo memory"
 ```
 
-Keep `.code-review-graph/` (the graph database) in `.gitignore` — it's local-only state rebuilt from source.
+Keep `.repomind/` (the graph database) in `.gitignore` — it's local-only state rebuilt from source.
 
 ---
 
 ## Automatic refresh
 
-When you run `code-review-graph update`, memory is automatically refreshed if `.agent-memory/` exists. This keeps memory fresh after incremental graph updates without manual intervention.
+When you run `repomind update`, memory is automatically refreshed if `.agent-memory/` exists. This keeps memory fresh after incremental graph updates without manual intervention.
 
 ---
 

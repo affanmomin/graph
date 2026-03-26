@@ -4,7 +4,7 @@
 
 ### Repo memory (Layer B) — new in this release
 - **`memory init`**: Scan repo → classify features/modules → write `.agent-memory/` artifacts (committed to Git). Shared pipeline called by both CLI and MCP tool.
-- **`memory refresh`**: Incremental artifact regeneration triggered by git-diff. Runs automatically after `code-review-graph update`. Graph BFS expands impact to structurally related areas.
+- **`memory refresh`**: Incremental artifact regeneration triggered by git-diff. Runs automatically after `repomind update`. Graph BFS expands impact to structurally related areas.
 - **`memory prepare-context`**: Task-aware context pack assembly. Graph BFS pulls in structurally related files beyond keyword matches. Returns features, modules, files, tests, and task summary.
 - **`memory explain`**: Reads stored `.agent-memory/` artifacts for a feature, module, or path. Graph enrichment adds import fan-in/fan-out and structural neighbors.
 - **`memory changed`**: Graph-expanded impact analysis for a changed area. Surfaces BFS callers, dependents, and tests. Also reads `changes/recent.md` for recent commit history.
@@ -12,8 +12,8 @@
 - **`memory_*` MCP tools**: All six memory commands exposed as MCP tools with identical behavior to CLI.
 - **`graph_bridge.py`**: Thin adapter isolating all graph imports from the memory subsystem. All functions degrade gracefully when `graph.db` is absent.
 - **CLAUDE.md generation**: `memory init` generates `.agent-memory/CLAUDE.md` — compact session bootstrap for Claude Code. Prints action-required notice if `@.agent-memory/CLAUDE.md` is absent from root CLAUDE.md.
-- **Graph-missing notice**: `memory init` detects absent `graph.db` and prints actionable guidance to run `code-review-graph build`.
-- **`.gitignore` validation**: `memory init` warns if `.agent-memory/` appears in `.gitignore` (memory would not be committed), and suggests adding `.code-review-graph/` if missing.
+- **Graph-missing notice**: `memory init` detects absent `graph.db` and prints actionable guidance to run `repomind build`.
+- **`.gitignore` validation**: `memory init` warns if `.agent-memory/` appears in `.gitignore` (memory would not be committed), and suggests adding `.repomind/` if missing.
 - **Human overrides**: `overrides/global.yaml` corrections applied to `rules/conventions.md`, `rules/safe-boundaries.md`, and context pack assembly.
 - **Metadata**: `manifest.json`, `confidence.json`, `sources.json`, `freshness.json` written alongside artifacts.
 
@@ -42,7 +42,7 @@
 - **Dependency trim**: Removed unused `gitpython` dependency.
 
 ## v1.7.0
-- **`install` command**: New primary entry point for setup (`code-review-graph install`). `init` remains as an alias.
+- **`install` command**: New primary entry point for setup (`repomind install`). `init` remains as an alias.
 - **`--dry-run` flag**: Preview what `install`/`init` would write without modifying files.
 - **PyPI auto-publish**: GitHub releases now automatically publish to PyPI.
 - **README rewrite**: Professional documentation with real benchmark data from httpx, FastAPI, and Next.js.
@@ -70,19 +70,19 @@
 - **Spaces-in-path handling**: *(superseded in v1.6.4 by `uvx`-based config)* Previously used symlinks for spaces in paths
 - **No git required**: `build`, `status`, `visualize`, `watch` now work on any directory without git
 - **Plugin ready**: Skills registered in plugin.json, SKILL.md frontmatter fixed
-- **File organization**: Generated files moved into `.code-review-graph/` directory (auto-created `.gitignore`, legacy migration)
+- **File organization**: Generated files moved into `.repomind/` directory (auto-created `.gitignore`, legacy migration)
 - **Visualization density**: Starts collapsed (File nodes only), search bar, clickable edge type toggles, scale-aware layout for large graphs
 - **Project cleanup**: Removed redundant `references/`, `agents/`, `settings.json`
 
 ## v1.4.0
 - **`init` command**: Automatic `.mcp.json` setup for Claude Code integration
-- **Interactive D3.js graph visualization**: `code-review-graph visualize` generates an HTML graph you can explore in-browser
+- **Interactive D3.js graph visualization**: `repomind visualize` generates an HTML graph you can explore in-browser
 - **Documentation overhaul**: Comprehensive docs audit across all reference files
 
 ## v1.3.0
 - **Python version check with Docker fallback**: Automatically detects Python 3.10+ and suggests Docker if unavailable
-- **Universal install**: `pip install code-review-graph` — no git clone needed
-- **CLI entry point**: `code-review-graph` command available system-wide after pip install
+- **Universal install**: `pip install repomind` — no git clone needed
+- **CLI entry point**: `repomind` command available system-wide after pip install
 
 ## v1.2.0
 - **Logging improvements**: Structured logging throughout the codebase
@@ -91,7 +91,7 @@
 - **CI coverage**: GitHub Actions CI/CD pipeline with test coverage reporting
 
 ## v1.1.0
-- **Watch mode**: `code-review-graph watch` — auto-rebuilds graph on file changes
+- **Watch mode**: `repomind watch` — auto-rebuilds graph on file changes
 - **Vector embeddings**: Optional `pip install .[embeddings]` for semantic code search
 - **Go, Rust, Java verified**: 12+ languages with dedicated test coverage
 - **47 tests passing**, 8 MCP tools registered
@@ -109,6 +109,6 @@
 
 ## Privacy & Data
 - All data stays 100% local
-- Graph stored in `.code-review-graph/graph.db` (SQLite), auto-gitignored
+- Graph stored in `.repomind/graph.db` (SQLite), auto-gitignored
 - No telemetry, no network calls
-- Respects `.gitignore` and `.code-review-graphignore`
+- Respects `.gitignore` and `.repomindignore`

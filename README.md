@@ -1,13 +1,13 @@
-<h1 align="center">code-review-graph</h1>
+<h1 align="center">repomind</h1>
 
 <p align="center">
   <strong>Your codebase, remembered. Stop re-explaining your repo to AI every session.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/tirth8205/code-review-graph/stargazers"><img src="https://img.shields.io/github/stars/tirth8205/code-review-graph?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/affanmomin/repomind/stargazers"><img src="https://img.shields.io/github/stars/affanmomin/repomind?style=flat-square" alt="Stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="MIT Licence"></a>
-  <a href="https://github.com/tirth8205/code-review-graph/actions/workflows/ci.yml"><img src="https://github.com/tirth8205/code-review-graph/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/affanmomin/repomind/actions/workflows/ci.yml"><img src="https://github.com/affanmomin/repomind/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg?style=flat-square" alt="Python 3.10+"></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-compatible-green.svg?style=flat-square" alt="MCP"></a>
   <a href="#"><img src="https://img.shields.io/badge/status-alpha-orange.svg?style=flat-square" alt="Alpha"></a>
@@ -17,21 +17,31 @@
 
 Every Claude Code session starts cold. You paste architecture context. You re-explain the file layout. You repeat what you said last week.
 
-`code-review-graph` fixes this permanently. It parses your repo with Tree-sitter, builds a structural graph of calls, imports, and tests, then writes plain Markdown artifacts to `.agent-memory/` — committed to Git, shared with your team, loaded automatically by Claude at every session start.
+`repomind` fixes this permanently. It parses your repo with Tree-sitter, builds a structural graph of calls, imports, and tests, then writes plain Markdown artifacts to `.agent-memory/` — committed to Git, shared with your team, loaded automatically by Claude at every session start.
 
 Before you start a task, one command tells Claude exactly which files matter, which tests cover them, and what not to touch. Nothing more.
+
+| What repomind does | What that means for you |
+|---|---|
+| Persistent `.agent-memory/` artifacts | The mind that never forgets — Claude starts with full context every session |
+| Graph-powered structural understanding | The intelligence behind the mind — real AST signals, not guesses |
+| Task-aware context packs | The mind knows what's relevant for your specific task, not the whole repo |
+| Human overrides | You shape what the mind knows — correct it once, it stays corrected |
+| Auto-refresh on commits | The mind stays current — updates automatically as your code changes |
+| Shared via Git | Your whole team shares one mind — commit `.agent-memory/` and everyone benefits |
+| Claude Code MCP integration | The mind plugs directly into your AI — no copy-pasting, no manual setup per session |
 
 ---
 
 ## Setup
 
 ```bash
-pip install code-review-graph
+pip install repomind
 cd your-project
 
-code-review-graph install         # add MCP server to .mcp.json, then restart Claude Code
-code-review-graph build           # parse codebase into graph (run once; ~10s for 500 files)
-code-review-graph memory init     # generate .agent-memory/ artifacts
+repomind install         # add MCP server to .mcp.json, then restart Claude Code
+repomind build           # parse codebase into graph (run once; ~10s for 500 files)
+repomind memory init     # generate .agent-memory/ artifacts
 ```
 
 **One manual step** — add this line to your repo's `CLAUDE.md` so Claude loads memory at every session start:
@@ -56,7 +66,7 @@ git commit -m "chore: add repo memory"
 ### 1. Prime Claude before starting a task
 
 ```bash
-$ code-review-graph memory prepare-context "add rate limiting to the auth middleware"
+$ repomind memory prepare-context "add rate limiting to the auth middleware"
 
   repo-memory: prepare-context
     task: add rate limiting to the auth middleware
@@ -85,7 +95,7 @@ Paste this into your Claude Code session. Claude starts with the exact files it 
 ### 2. Explain any area of the codebase
 
 ```bash
-$ code-review-graph memory explain authentication
+$ repomind memory explain authentication
 
   ## authentication  [feature]  confidence: 91%
 
@@ -105,7 +115,7 @@ Reads from `.agent-memory/` on disk. No re-analysis, no tokens spent on scanning
 ### 3. Trace the impact of a change
 
 ```bash
-$ code-review-graph memory changed src/auth/middleware.py
+$ repomind memory changed src/auth/middleware.py
 
   Owner areas: authentication (feature), middleware (module)
 
@@ -124,11 +134,11 @@ Not just "who owns this file" — which callers, dependents, and tests to check,
 ### 4. Refresh memory after commits
 
 ```bash
-code-review-graph memory refresh          # incremental — only changed areas
-code-review-graph memory refresh --full   # regenerate everything
+repomind memory refresh          # incremental — only changed areas
+repomind memory refresh --full   # regenerate everything
 ```
 
-Also runs automatically when you run `code-review-graph update`. Only artifacts whose source files changed are regenerated — graph BFS catches structurally related areas too.
+Also runs automatically when you run `repomind update`. Only artifacts whose source files changed are regenerated — graph BFS catches structurally related areas too.
 
 ---
 
@@ -139,7 +149,7 @@ Two distinct layers. One is local-only. One is committed to Git.
 ```
 Graph engine (local, gitignored)     Repo memory (committed to Git)
 ────────────────────────────────     ──────────────────────────────────────────
-.code-review-graph/                  .agent-memory/
+.repomind/                  .agent-memory/
   graph.db  ───────────────────────►   CLAUDE.md           ← session bootstrap
   (SQLite)                              repo.md              ← one-page overview
   14 languages                          architecture.md      ← module map
@@ -151,7 +161,7 @@ Graph engine (local, gitignored)     Repo memory (committed to Git)
                                         metadata/*.json      ← freshness, confidence
 ```
 
-**The graph is the engine.** Tree-sitter parses 14 languages into a SQLite graph of nodes (functions, classes, imports) and edges (calls, inheritance, TESTED_BY, IMPORTS_FROM). It lives in `.code-review-graph/` — gitignored, never committed, rebuilt from source on any machine in seconds.
+**The graph is the engine.** Tree-sitter parses 14 languages into a SQLite graph of nodes (functions, classes, imports) and edges (calls, inheritance, TESTED_BY, IMPORTS_FROM). It lives in `.repomind/` — gitignored, never committed, rebuilt from source on any machine in seconds.
 
 **Memory is the product.** The memory subsystem reads the graph as structural truth, classifies features and modules, and writes plain Markdown to `.agent-memory/`. These files are human-readable, diff-friendly, and committed to Git. Every teammate and every Claude session starts with full context automatically — no setup required after the first `memory init`.
 
@@ -167,7 +177,7 @@ Graph engine (local, gitignored)     Repo memory (committed to Git)
 | | Location | Committed to Git? |
 |---|---|---|
 | `.agent-memory/` artifacts | repo root | **Yes** — shared with the whole team |
-| `.code-review-graph/graph.db` | repo root | **No** — local cache, rebuild any time |
+| `.repomind/graph.db` | repo root | **No** — local cache, rebuild any time |
 | Embedding vectors | local | **No** |
 
 ---
@@ -231,7 +241,7 @@ After editing, run `memory init` to regenerate `rules/conventions.md` with your 
 Run `memory annotate` to open the file (or scaffold it on first use):
 
 ```bash
-code-review-graph memory annotate
+repomind memory annotate
 ```
 
 ---
@@ -241,25 +251,25 @@ code-review-graph memory annotate
 ### Memory commands
 
 ```bash
-code-review-graph memory init                            # generate .agent-memory/ (run once)
-code-review-graph memory refresh                         # incremental refresh after commits
-code-review-graph memory refresh --full                  # full regeneration
-code-review-graph memory prepare-context "<task>"        # focused context pack for a task
-code-review-graph memory explain <feature|module|path>   # show stored memory for an area
-code-review-graph memory changed <file|dir>              # impact analysis for changed files
-code-review-graph memory annotate                        # open override file for editing
+repomind memory init                            # generate .agent-memory/ (run once)
+repomind memory refresh                         # incremental refresh after commits
+repomind memory refresh --full                  # full regeneration
+repomind memory prepare-context "<task>"        # focused context pack for a task
+repomind memory explain <feature|module|path>   # show stored memory for an area
+repomind memory changed <file|dir>              # impact analysis for changed files
+repomind memory annotate                        # open override file for editing
 ```
 
 ### Graph commands
 
 ```bash
-code-review-graph build       # parse codebase into graph (also refreshes memory if .agent-memory/ exists)
-code-review-graph update      # incremental update (also auto-refreshes memory)
-code-review-graph status      # graph statistics
-code-review-graph watch       # auto-update on file saves
-code-review-graph visualize   # generate interactive D3.js HTML graph
-code-review-graph install     # register MCP server with Claude Code
-code-review-graph serve       # start MCP server
+repomind build       # parse codebase into graph (also refreshes memory if .agent-memory/ exists)
+repomind update      # incremental update (also auto-refreshes memory)
+repomind status      # graph statistics
+repomind watch       # auto-update on file saves
+repomind visualize   # generate interactive D3.js HTML graph
+repomind install     # register MCP server with Claude Code
+repomind serve       # start MCP server
 ```
 
 All commands accept `--repo <path>` to target a specific directory.
@@ -268,7 +278,7 @@ All commands accept `--repo <path>` to target a specific directory.
 
 ## MCP tools
 
-When the MCP server is running (`code-review-graph serve`), Claude Code can call these directly:
+When the MCP server is running (`repomind serve`), Claude Code can call these directly:
 
 ### Memory tools
 
@@ -310,7 +320,7 @@ When the MCP server is running (`code-review-graph serve`), Claude Code can call
 | **Local graph, committed memory** | Graph DB is a local performance cache — gitignored, fast to rebuild. Memory is plain Markdown — diffable and reviewable. |
 | **MCP-native** | Graph and memory tools exposed via MCP for direct Claude Code integration. |
 | **Interactive visualisation** | D3.js force-directed graph with edge-type toggles, search, and expand-on-click. |
-| **Semantic search (optional)** | `pip install code-review-graph[embeddings]` — vector-based code entity search. |
+| **Semantic search (optional)** | `pip install repomind[embeddings]` — vector-based code entity search. |
 
 ---
 
@@ -320,7 +330,7 @@ When the MCP server is running (`code-review-graph serve`), Claude Code can call
 
 **Incremental updates** — SHA-256 hash diffing re-parses only changed files. A 2,900-file project re-indexes in under 2 seconds.
 
-**Ignore patterns** — create `.code-review-graphignore` in your repo root (gitignore syntax):
+**Ignore patterns** — create `.repomindignore` in your repo root (gitignore syntax):
 
 ```
 generated/**
@@ -334,22 +344,24 @@ node_modules/**
 ## Contributing
 
 ```bash
-git clone https://github.com/tirth8205/code-review-graph.git
-cd code-review-graph
+git clone https://github.com/affanmomin/repomind.git
+cd repomind
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest tests/ --tb=short -q
 ```
 
-To add a language: edit `code_review_graph/parser.py`, add to `EXTENSION_TO_LANGUAGE` and the four node-type maps, add a test fixture, open a PR.
+To add a language: edit `code_review_graph/parser.py` (internal package, Level 2 rename pending), add to `EXTENSION_TO_LANGUAGE` and the four node-type maps, add a test fixture, open a PR.
 
 See [`docs/`](docs/) for architecture, schema, and full command reference.
+
+> This repo is an independent fork of [code-review-graph](https://github.com/tirth8205/code-review-graph) by Tirth, which provided the original Tree-sitter graph engine and MCP tooling. The repo-memory product layer built on top of it is original work — contributions should be made here.
 
 ---
 
 ## Status
 
-**Alpha.** Memory classification is heuristic-based — no LLMs, just code structure. It works well on repos with domain-structured directories (`auth/`, `billing/`, `api/`, etc.). Known limitation: repos where all source files live in a single flat package (no feature subdirectories) will detect 0 features — only modules. Use `memory annotate` to add corrections and task hints. Bug reports and feedback welcome at [GitHub Issues](https://github.com/tirth8205/code-review-graph/issues).
+**Alpha.** Memory classification is heuristic-based — no LLMs, just code structure. It works well on repos with domain-structured directories (`auth/`, `billing/`, `api/`, etc.). Known limitation: repos where all source files live in a single flat package (no feature subdirectories) will detect 0 features — only modules. Use `memory annotate` to add corrections and task hints. Bug reports and feedback welcome at [GitHub Issues](https://github.com/affanmomin/repomind/issues).
 
 ## Licence
 
@@ -357,5 +369,5 @@ MIT. See [LICENSE](LICENSE).
 
 <p align="center">
 <br>
-<code>pip install code-review-graph && code-review-graph build && code-review-graph memory init</code>
+<code>pip install repomind && repomind build && repomind memory init</code>
 </p>

@@ -1,7 +1,7 @@
 # Repo Memory V1 — Design Reference
 
 > This document describes the architecture, artifact layout, and module responsibilities
-> for the repo-memory subsystem being added to `code-review-graph`.
+> for the repo-memory subsystem being added to `repomind`.
 > It is intended for contributors and for AI coding sessions working in this area.
 
 ## Product goal
@@ -56,7 +56,7 @@ Layer B reads from Layer A. It does not modify graph.py, parser.py, incremental.
 
 **Git commit policy:**
 - All files above are committed to Git (durable, shareable).
-- The graph database (`.code-review-graph/graph.db`) stays local-only.
+- The graph database (`.repomind/graph.db`) stays local-only.
 - Override files in `overrides/` are human-authored and must never be auto-overwritten.
 
 ---

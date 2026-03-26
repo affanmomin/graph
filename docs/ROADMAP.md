@@ -31,7 +31,7 @@
 - Skills registered in plugin.json for Claude Code plugin discovery
 
 ### v1.5.0
-- Generated files organized into `.code-review-graph/` directory (auto-gitignored, legacy migration)
+- Generated files organized into `.repomind/` directory (auto-gitignored, legacy migration)
 - Visualization density: collapsed start, search, edge toggles, scale-aware layout
 - Project cleanup: removed redundant files and directories
 
@@ -43,8 +43,8 @@
 
 ### v1.3.0
 - Python version check with Docker fallback
-- Universal install via `pip install code-review-graph`
-- CLI entry point (`code-review-graph` command)
+- Universal install via `pip install repomind`
+- CLI entry point (`repomind` command)
 
 ### v1.2.0
 - Logging improvements and watch debounce

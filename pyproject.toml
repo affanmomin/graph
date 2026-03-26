@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "code-review-graph"
+name = "repomind"
 version = "1.8.4"
 description = "Your codebase, remembered. Graph-powered repo memory for Claude Code — committed to Git, shared with your team, loaded every session."
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    { name = "Tirth" },
+    { name = "Affan Momin", email = "affanmomin@github.com" },
 ]
 keywords = ["repo-memory", "claude-code", "knowledge-graph", "tree-sitter", "mcp", "code-review"]
 classifiers = [
@@ -35,14 +35,14 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/tirth8205/code-review-graph"
-Repository = "https://github.com/tirth8205/code-review-graph"
-Documentation = "https://github.com/tirth8205/code-review-graph/blob/main/docs/INDEX.md"
-Changelog = "https://github.com/tirth8205/code-review-graph/blob/main/CHANGELOG.md"
-Issues = "https://github.com/tirth8205/code-review-graph/issues"
+Homepage = "https://github.com/affanmomin/repomind"
+Repository = "https://github.com/affanmomin/repomind"
+Documentation = "https://github.com/affanmomin/repomind/blob/main/docs/INDEX.md"
+Changelog = "https://github.com/affanmomin/repomind/blob/main/CHANGELOG.md"
+Issues = "https://github.com/affanmomin/repomind/issues"
 
 [project.scripts]
-code-review-graph = "code_review_graph.cli:main"
+repomind = "code_review_graph.cli:main"
 
 [project.optional-dependencies]
 embeddings = [

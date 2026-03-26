@@ -1,8 +1,7 @@
 {
-  "name": "code-review-graph",
+  "name": "repomind",
   "owner": {
-    "name": "Tirth Kanani",
-    "email": "tirthkanani18@gmail.com"
+    "name": "Affan Momin"
   },
   "metadata": {
     "description": "Persistent incremental knowledge graph for token-efficient, context-aware code reviews with Claude Code",
@@ -10,7 +9,7 @@
   },
   "plugins": [
     {
-      "name": "code-review-graph",
+      "name": "repomind",
       "source": "./",
       "description": "Persistent incremental knowledge graph for token-efficient, context-aware code reviews with Claude Code",
       "version": "1.7.2",

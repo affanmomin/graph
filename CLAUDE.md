@@ -52,7 +52,7 @@ This is a **fork and extend** — not a greenfield rewrite. The existing graph/p
 
 ## Project Overview
 
-**code-review-graph** is a persistent, incrementally-updated knowledge graph for token-efficient code reviews with Claude Code. It parses codebases using Tree-sitter, builds a structural graph in SQLite, and exposes it via MCP tools.
+**repomind** is a persistent, incrementally-updated knowledge graph for token-efficient code reviews with Claude Code. It parses codebases using Tree-sitter, builds a structural graph in SQLite, and exposes it via MCP tools.
 
 ## Architecture
 
@@ -63,14 +63,14 @@ This is a **fork and extend** — not a greenfield rewrite. The existing graph/p
   - `incremental.py` — Git-based change detection, file watching
   - `embeddings.py` — Optional vector embeddings (local or Google Gemini)
   - `visualization.py` — D3.js interactive HTML graph generator
-  - `cli.py` — CLI entry point (`code-review-graph build/update/watch/serve/...`)
+  - `cli.py` — CLI entry point (`repomind build/update/watch/serve/...`)
   - `main.py` — FastMCP server entry point (stdio transport)
 
-- **VS Code Extension**: `code-review-graph-vscode/` (TypeScript)
+- **VS Code Extension**: `repomind-vscode/` (TypeScript)
   - Separate subproject with its own `package.json`, `tsconfig.json`
-  - Reads from `.code-review-graph/graph.db` via SQLite
+  - Reads from `.repomind/graph.db` via SQLite
 
-- **Database**: `.code-review-graph/graph.db` (SQLite, WAL mode)
+- **Database**: `.repomind/graph.db` (SQLite, WAL mode)
 
 ## Key Commands
 
@@ -81,10 +81,10 @@ uv run ruff check code_review_graph/        # Lint
 uv run mypy code_review_graph/ --ignore-missing-imports --no-strict-optional
 
 # Build & test
-uv run code-review-graph build              # Full graph build
-uv run code-review-graph update             # Incremental update
-uv run code-review-graph status             # Show stats
-uv run code-review-graph serve              # Start MCP server
+uv run repomind build              # Full graph build
+uv run repomind update             # Incremental update
+uv run repomind status             # Show stats
+uv run repomind serve              # Start MCP server
 ```
 
 ## Ticket Rules (apply to every task)

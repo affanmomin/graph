@@ -1,27 +1,27 @@
-# VS Code Extension for code-review-graph
+# VS Code Extension for repomind
 
 **Date:** 2026-03-16
 **Status:** Approved
 
 ## Overview
 
-A full-featured VS Code extension that brings code-review-graph's knowledge graph into the IDE. Provides a tree view sidebar, interactive force-directed graph panel, on-demand blast-radius analysis, code navigation commands, SCM review integration, and guided onboarding for first-time users.
+A full-featured VS Code extension that brings repomind's knowledge graph into the IDE. Provides a tree view sidebar, interactive force-directed graph panel, on-demand blast-radius analysis, code navigation commands, SCM review integration, and guided onboarding for first-time users.
 
-**Target audience:** General VS Code marketplace users (discovery-driven), with power features for existing code-review-graph users.
+**Target audience:** General VS Code marketplace users (discovery-driven), with power features for existing repomind users.
 
 ## Architecture
 
 **TypeScript Extension + Subprocess Bridge.**
 
 - Read operations (tree view, graph data, queries, search): TypeScript reads SQLite directly via `better-sqlite3`. No Python needed.
-- Write operations (build, update, embed, review context): Spawns `code-review-graph` CLI as a child process.
+- Write operations (build, update, embed, review context): Spawns `repomind` CLI as a child process.
 - The SQLite schema (4 tables: `nodes`, `edges`, `metadata`, `embeddings`) is the contract between the Python backend and the TypeScript reader. The `embeddings` table stores vector blobs for semantic search and is optional (only present after `embed_graph` runs).
 - No MCP protocol dependency. The extension is standalone from Claude Code.
 - CLI output contract: The extension invokes CLI commands with a `--json` flag (to be added to the Python CLI) for structured output. Fallback: ignore CLI stdout and re-read the DB after command completion.
 
 **Schema compatibility:**
 - The extension reads `schema_version` from the `metadata` table (to be added to the Python backend) and warns if the DB was created by an incompatible version.
-- The extension handles both legacy (`.code-review-graph.db` at repo root) and current (`.code-review-graph/graph.db`) DB locations, matching the Python backend's migration logic.
+- The extension handles both legacy (`.repomind.db` at repo root) and current (`.repomind/graph.db`) DB locations, matching the Python backend's migration logic.
 
 **Graceful degradation:**
 - If `graph.db` exists but Python is not installed, all read features work (tree view, graph panel, navigation). Write commands show "Backend not found. [Install Now]".
@@ -31,7 +31,7 @@ A full-featured VS Code extension that brings code-review-graph's knowledge grap
 ## Project Structure
 
 ```
-code-review-graph-vscode/
+repomind-vscode/
 ├── package.json              # Extension manifest, commands, views, config
 ├── tsconfig.json
 ├── esbuild.mjs               # Build config: extension host + webview bundles
@@ -39,7 +39,7 @@ code-review-graph-vscode/
 │   ├── extension.ts          # Activation, command registration, lifecycle
 │   ├── backend/
 │   │   ├── sqlite.ts         # Read-only SQLite access via better-sqlite3
-│   │   ├── cli.ts            # Subprocess wrapper for code-review-graph CLI
+│   │   ├── cli.ts            # Subprocess wrapper for repomind CLI
 │   │   └── watcher.ts        # FileSystemWatcher for .db changes → refresh UI
 │   ├── views/
 │   │   ├── treeView.ts       # TreeDataProvider for sidebar
@@ -52,7 +52,7 @@ code-review-graph-vscode/
 │   │   └── search.ts         # Command palette search across graph nodes
 │   ├── onboarding/
 │   │   ├── welcome.ts        # Welcome walkthrough webview
-│   │   └── installer.ts      # Auto-detect & install code-review-graph
+│   │   └── installer.ts      # Auto-detect & install repomind
 │   └── webview/
 │       ├── graph.html         # D3.js graph template
 │       ├── graph.ts           # Client-side graph logic (bundled separately)
@@ -71,7 +71,7 @@ code-review-graph-vscode/
 - VS Code API (`vscode` namespace) -- TreeView, WebviewPanel, commands, SCM
 
 **Activation events:**
-- `workspaceContains:.code-review-graph/graph.db` -- activate when graph exists
+- `workspaceContains:.repomind/graph.db` -- activate when graph exists
 - `onCommand:codeReviewGraph.*` -- activate on any extension command
 - `onView:codeReviewGraph.*` -- activate when sidebar view is opened
 
@@ -162,10 +162,10 @@ All features are on-demand via the Command Palette (`Ctrl+Shift+P`).
 
 ## Automatic Behaviors
 
-- **On workspace open:** Check for `.code-review-graph/graph.db`. If found, load tree view. If not, show welcome walkthrough.
+- **On workspace open:** Check for `.repomind/graph.db`. If found, load tree view. If not, show welcome walkthrough.
 - **On DB file change:** `FileSystemWatcher` monitors `graph.db`. On change, tree view and open graph panel refresh automatically.
 - **Status bar item:** Shows `$(database) 1,234 nodes` when healthy, `$(warning) Graph outdated` when DB is stale (>1 hour). Click to run update.
-- **Auto-update on save:** When `codeReviewGraph.autoUpdate` is enabled (default), runs `code-review-graph update` on file save with a 2-second debounce. If a user also has Claude Code hooks configured, they should set `codeReviewGraph.autoUpdate` to `false` to avoid double-updates.
+- **Auto-update on save:** When `codeReviewGraph.autoUpdate` is enabled (default), runs `repomind update` on file save with a 2-second debounce. If a user also has Claude Code hooks configured, they should set `codeReviewGraph.autoUpdate` to `false` to avoid double-updates.
 
 ## Review Assistant (SCM Integration)
 
@@ -186,7 +186,7 @@ All features are on-demand via the Command Palette (`Ctrl+Shift+P`).
 - Checks `python3 --version >= 3.10`
 
 **Step 2: Build Your Graph**
-- "Build Graph" button runs `code-review-graph build`
+- "Build Graph" button runs `repomind build`
 - Progress bar in notification area
 - Completion message: "Built X nodes and Y edges across Z languages"
 
@@ -204,7 +204,7 @@ All features are on-demand via the Command Palette (`Ctrl+Shift+P`).
 
 ```jsonc
 {
-  // Path to code-review-graph CLI (auto-detected if on PATH)
+  // Path to repomind CLI (auto-detected if on PATH)
   "codeReviewGraph.cliPath": "",
 
   // Auto-update graph on file save (debounced 2s)

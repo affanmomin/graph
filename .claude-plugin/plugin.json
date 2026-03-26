@@ -1,20 +1,19 @@
 {
-  "name": "code-review-graph",
+  "name": "repomind",
   "description": "Persistent incremental knowledge graph for token-efficient, context-aware code reviews with Claude Code",
   "version": "1.8.3",
   "author": {
-    "name": "Tirth Kanani",
-    "email": "tirthkanani18@gmail.com",
-    "url": "https://github.com/tirth8205"
+    "name": "Affan Momin",
+    "url": "https://github.com/affanmomin"
   },
-  "homepage": "https://github.com/tirth8205/code-review-graph",
-  "repository": "https://github.com/tirth8205/code-review-graph",
+  "homepage": "https://github.com/affanmomin/repomind",
+  "repository": "https://github.com/affanmomin/repomind",
   "license": "MIT",
   "keywords": ["code-review", "knowledge-graph", "incremental", "tree-sitter", "mcp", "claude-code"],
   "mcpServers": {
-    "code-review-graph": {
+    "repomind": {
       "command": "uvx",
-      "args": ["code-review-graph", "serve"]
+      "args": ["repomind", "serve"]
     }
   },
   "skills": "./skills/"

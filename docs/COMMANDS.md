@@ -2,18 +2,18 @@
 
 ## Skills (Claude Code slash commands)
 
-### `/code-review-graph:build-graph`
+### `/repomind:build-graph`
 Build or update the knowledge graph.
 - First time: performs a full build
 - Subsequent: incremental update (only changed files)
 
-### `/code-review-graph:review-delta`
+### `/repomind:review-delta`
 Review only changes since last commit.
 - Auto-detects changed files via git diff
 - Computes blast radius (2-hop default)
 - Generates structured review with guidance
 
-### `/code-review-graph:review-pr`
+### `/repomind:review-pr`
 Review a PR or branch diff.
 - Uses main/master as base
 - Full impact analysis across all PR commits
@@ -37,7 +37,7 @@ repo_root: str | None
 base: str = "HEAD~1"
 ```
 > BFS traversal is capped at `max_results` nodes. Response includes `truncated` (bool) and `total_impacted` (int).
-> `repo_root` must point to a directory containing `.git` or `.code-review-graph`.
+> `repo_root` must point to a directory containing `.git` or `.repomind`.
 
 ### `query_graph_tool`
 ```
@@ -69,7 +69,7 @@ repo_root: str | None
 ```
 repo_root: str | None
 ```
-Requires: `pip install code-review-graph[embeddings]`
+Requires: `pip install repomind[embeddings]`
 
 ### `list_graph_stats_tool`
 ```
@@ -135,54 +135,54 @@ Scaffold `.agent-memory/overrides/global.yaml` (never overwrites existing conten
 
 ```bash
 # Register MCP server with Claude Code
-code-review-graph install           # also available as: code-review-graph init
-code-review-graph install --dry-run # preview without writing files
+repomind install           # also available as: repomind init
+repomind install --dry-run # preview without writing files
 
 # Full build
-code-review-graph build
+repomind build
 
 # Incremental update
-code-review-graph update
-code-review-graph update --base origin/main  # custom base ref
+repomind update
+repomind update --base origin/main  # custom base ref
 
 # Check status
-code-review-graph status
+repomind status
 
 # Watch mode
-code-review-graph watch
+repomind watch
 
 # Generate graph visualisation
-code-review-graph visualize
+repomind visualize
 
 # Start MCP server
-code-review-graph serve
+repomind serve
 ```
 
 ### Repo-memory CLI commands
 
 ```bash
 # Generate .agent-memory/ artifacts (run once, then commit)
-code-review-graph memory init
-code-review-graph memory init --repo /path/to/repo
+repomind memory init
+repomind memory init --repo /path/to/repo
 
 # Refresh after changes (incremental by default)
-code-review-graph memory refresh
-code-review-graph memory refresh --full
+repomind memory refresh
+repomind memory refresh --full
 
 # Explain a feature, module, or file path
-code-review-graph memory explain authentication
-code-review-graph memory explain src/payments/
+repomind memory explain authentication
+repomind memory explain src/payments/
 
 # Build task context pack for a Claude Code session
-code-review-graph memory prepare-context "add rate limiting to the API"
-code-review-graph memory prepare-context "fix auth bug" --json
+repomind memory prepare-context "add rate limiting to the API"
+repomind memory prepare-context "fix auth bug" --json
 
 # Show recent changes in an area
-code-review-graph memory changed authentication
-code-review-graph memory changed src/api/
+repomind memory changed authentication
+repomind memory changed src/api/
 
 # Edit human override guidance
-code-review-graph memory annotate
+repomind memory annotate
 ```
 
 ## API Response Schemas

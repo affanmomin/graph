@@ -90,10 +90,10 @@ Strategy: after Tier-1/Tier-2 keyword directory scan comes up empty, scan indivi
 **What:**
 1. After `memory init` completes, print a quality verdict line:
    - `Good: 3 features + 5 modules detected` (green if color supported)
-   - `Sparse: 0 features detected — add domain corrections in .agent-memory/overrides/ or run code-review-graph build first` (yellow)
+   - `Sparse: 0 features detected — add domain corrections in .agent-memory/overrides/ or run repomind build first` (yellow)
 2. At the start of `memory init`, check if `graph.db` exists. If not, print a prominent notice *before* scanning:
    ```
-   Tip: run `code-review-graph build` first for graph-assisted classification.
+   Tip: run `repomind build` first for graph-assisted classification.
    Continuing with heuristic-only mode.
    ```
    This should be the first printed line, not buried in output.
@@ -221,12 +221,12 @@ For better results: run `memory annotate` to add task hints.
 Walk through the complete first-time setup as a new user on a clean machine:
 
 ```bash
-pip install code-review-graph
+pip install repomind
 cd my-project
-code-review-graph build
-code-review-graph memory init
+repomind build
+repomind memory init
 # Add @.agent-memory/CLAUDE.md to your Claude Code config
-code-review-graph memory prepare-context "add a new user registration endpoint"
+repomind memory prepare-context "add a new user registration endpoint"
 ```
 
 For each step: is the output clear? Is the error message (if any) actionable? Is the next step obvious?

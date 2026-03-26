@@ -2,7 +2,7 @@
 
 ## System Overview
 
-`code-review-graph` is a Claude Code plugin that maintains a persistent, incrementally-updated knowledge graph of a codebase. It's designed to make code reviews faster and more context-aware by providing structural understanding of code relationships.
+`repomind` is a Claude Code plugin that maintains a persistent, incrementally-updated knowledge graph of a codebase. It's designed to make code reviews faster and more context-aware by providing structural understanding of code relationships.
 
 ## Component Diagram
 
@@ -48,7 +48,7 @@
 ## Data Flow
 
 ### Full Build
-1. `collect_all_files()` gathers all parseable files (respecting `.gitignore` and `.code-review-graphignore`)
+1. `collect_all_files()` gathers all parseable files (respecting `.gitignore` and `.repomindignore`)
 2. For each file, `CodeParser.parse_file()` uses Tree-sitter to extract AST
 3. AST walker identifies structural nodes (classes, functions, imports) and edges (calls, inheritance)
 4. `GraphStore.store_file_nodes_edges()` persists to SQLite with file hash for change detection

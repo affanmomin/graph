@@ -92,7 +92,7 @@ For tasks that involve code changes, were the relevant test files included in th
 
 ## 4. `memory explain` Usefulness
 
-Run `uv run code-review-graph memory explain <feature>` on 2–3 features.
+Run `uv run repomind memory explain <feature>` on 2–3 features.
 Rate how useful the explain output would be to an AI agent about to work on that feature.
 
 | Target | Command run | Usefulness (1–5) | Notes |
@@ -109,7 +109,7 @@ Rate how useful the explain output would be to an AI agent about to work on that
 
 ## 5. `memory changed` Usefulness
 
-Run `uv run code-review-graph memory changed <file>` on 1–2 recently changed files.
+Run `uv run repomind memory changed <file>` on 1–2 recently changed files.
 Rate the quality of the impacted-areas analysis.
 
 | File | Impacted areas shown | Accurate? | Useful for triage? | Notes |
@@ -137,7 +137,7 @@ For the worst-scoring task in section 2, list the noisy files and why they were 
 
 After making a small change to one file, run:
 ```
-uv run code-review-graph memory refresh
+uv run repomind memory refresh
 ```
 
 | Changed file | Artifacts refreshed | Correct? | Graph-expanded artifacts | Expansion makes sense? |

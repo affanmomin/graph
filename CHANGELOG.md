@@ -73,7 +73,7 @@
 
 ### Security
 - **Prompt injection mitigation**: Node names are now sanitized (control characters stripped, length capped at 256) before appearing in MCP tool responses, preventing graph-laundered prompt injection attacks
-- **Path traversal protection**: `repo_root` parameter now validates that the target directory contains a `.git` or `.code-review-graph` directory, preventing arbitrary file exfiltration via MCP tools
+- **Path traversal protection**: `repo_root` parameter now validates that the target directory contains a `.git` or `.repomind` directory, preventing arbitrary file exfiltration via MCP tools
 - **VSCode RCE fix**: `cliPath` setting is now scoped to `machine` level only, preventing malicious workspace settings from pointing to attacker-controlled binaries
 - **XSS fix in visualization**: `escH()` now escapes quotes and backticks in addition to angle brackets, closing stored XSS via crafted node names in generated HTML
 - **SRI for CDN assets**: D3.js script tag now includes `integrity` and `crossorigin` attributes to prevent CDN compromise
@@ -85,7 +85,7 @@
 - **Thread-safe NetworkX cache**: Added `threading.Lock` around graph cache reads/writes to prevent race conditions between watch mode and MCP request handling
 - **BFS resource limits**: Impact radius traversal now caps at 500 nodes to prevent memory exhaustion on dense graphs
 - **SQL parameter batching**: `get_edges_among` now batches queries to stay under SQLite's variable limit on large node sets
-- **Database path leakage**: Improved `.gitignore` inside `.code-review-graph/` with explicit warnings about absolute paths in the database
+- **Database path leakage**: Improved `.gitignore` inside `.repomind/` with explicit warnings about absolute paths in the database
 
 ### Changed
 - **Pinned dependency bounds**: All dependencies now have upper-bound version constraints to mitigate supply-chain risks
@@ -101,7 +101,7 @@
 ## [1.7.0] - 2026-03-09
 
 ### Added
-- **`install` command** — primary entry point for new users (`code-review-graph install`). `init` remains as an alias for backwards compatibility.
+- **`install` command** — primary entry point for new users (`repomind install`). `init` remains as an alias for backwards compatibility.
 - **`--dry-run` flag** on `install`/`init` — shows what would be written without modifying files
 - **PyPI publish workflow** — GitHub releases now automatically publish to PyPI via API token
 - **Professional README** — complete rewrite with real benchmark data:
@@ -164,18 +164,18 @@
 ## [1.5.0] - 2026-02-26
 
 ### Added
-- **File organization**: All generated files now live in `.code-review-graph/` directory instead of repo root
+- **File organization**: All generated files now live in `.repomind/` directory instead of repo root
   - Auto-created `.gitignore` inside the directory prevents accidental commits
-  - Automatic migration from legacy `.code-review-graph.db` at repo root
+  - Automatic migration from legacy `.repomind.db` at repo root
 - **Visualization: start collapsed**: Only File nodes visible on load; click to expand children
 - **Visualization: search bar**: Filter nodes by name or qualified name in real-time
 - **Visualization: edge type toggles**: Click legend items to show/hide edge types (Calls, Imports, Inherits, Contains)
 - **Visualization: scale-aware layout**: Force simulation adapts charge, distance, and decay for large graphs (300+ nodes)
 
 ### Changed
-- Database path: `.code-review-graph.db` → `.code-review-graph/graph.db`
-- HTML visualization path: `.code-review-graph.html` → `.code-review-graph/graph.html`
-- `.code-review-graph/**` added to default ignore patterns (prevents self-indexing)
+- Database path: `.repomind.db` → `.repomind/graph.db`
+- HTML visualization path: `.repomind.html` → `.repomind/graph.html`
+- `.repomind/**` added to default ignore patterns (prevents self-indexing)
 
 ### Removed
 - `references/` directory (duplicate of `docs/`, caused stale path references)
@@ -195,8 +195,8 @@
 ## [1.3.0] - 2026-02-26
 
 ### Added
-- Universal installation: now works with `pip install code-review-graph[embeddings]` on Python 3.10+
-- CLI entry point (`code-review-graph` command works after normal pip install)
+- Universal installation: now works with `pip install repomind[embeddings]` on Python 3.10+
+- CLI entry point (`repomind` command works after normal pip install)
 - Clear Python version check with helpful Docker fallback for older Python users
 - Improved README installation section with one-command + Docker option
 

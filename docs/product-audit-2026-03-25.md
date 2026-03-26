@@ -1,4 +1,4 @@
-# Product Audit — code-review-graph
+# Product Audit — repomind
 **Date:** 2026-03-25
 **Version:** v1.8.4
 **Codebase:** 22 Python source files · ~10,200 lines · 800 tests (all passing)
@@ -96,7 +96,7 @@ What is missing is not functionality — it is integration confidence and one sp
 | Data | Committed? |
 |---|---|
 | `.agent-memory/` (all .md, .json, .yaml) | **Yes — by design** |
-| `.code-review-graph/graph.db` | No — local performance index |
+| `.repomind/graph.db` | No — local performance index |
 | Embeddings cache | No — local |
 | Parser caches (in-memory) | No |
 
@@ -177,7 +177,7 @@ get_changed_files(repo_root) → [changed file paths]
 
 Produces a `RepoScan` dataclass: `top_level_dirs`, `source_dirs`, `test_dirs`, `docs_dirs`, `config_files`, `languages`, `framework_hints`, `file_counts`, `readme_path`, `confidence` [0–1], `notes`.
 
-Heuristics: extension map for 14 languages; skips `.git`, `node_modules`, `.venv`, `__pycache__`, `.code-review-graph`, `.agent-memory`; framework detection by file presence (`manage.py` → Django, `next.config.js` → Next.js, etc.).
+Heuristics: extension map for 14 languages; skips `.git`, `node_modules`, `.venv`, `__pycache__`, `.repomind`, `.agent-memory`; framework detection by file presence (`manage.py` → Django, `next.config.js` → Next.js, etc.).
 
 ### Classifier (`classifier.py`)
 
@@ -294,7 +294,7 @@ Load strategy: `global.yaml` first, then alphabetical area files. Merge policy: 
 
 **Fix:** Extract a shared `_run_init_pipeline(root)` function called by both.
 
-### Gap 2 — Automatic refresh not wired to `code-review-graph update` (Behavioral)
+### Gap 2 — Automatic refresh not wired to `repomind update` (Behavioral)
 
 `_maybe_refresh_memory` was added to `incremental.py` but `refresh_memory` defaults to `False`. The `update` CLI command calls `incremental_update(repo_root, store, base=args.base)` without passing `refresh_memory=True`. Automatic memory refresh on git commit is not enabled.
 

@@ -181,9 +181,9 @@ For each repo:
 | `coverage_pct < 50`           | Task description tokens don't match names, or target file is outside classified modules |
 | `files_returned > 20`         | Scoring threshold too low (`_MIN_SCORE`)    |
 | `tokens_estimated > 40 000`   | Module has many large files; pack returns all of them in fallback mode |
-| No `graph_expanded` slugs     | `.code-review-graph/graph.db` not built     |
+| No `graph_expanded` slugs     | `.repomind/graph.db` not built     |
 
-### Results on this repo (code-review-graph)
+### Results on this repo (repomind)
 
 This repo is itself a good stress-test case for the product. Its layout is **module-dominant with no domain-keyword feature directories**:
 

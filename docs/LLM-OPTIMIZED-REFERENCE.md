@@ -1,14 +1,14 @@
-# LLM-OPTIMIZED REFERENCE — code-review-graph v1.8.4
+# LLM-OPTIMIZED REFERENCE — repomind v1.8.4
 
 Claude Code: Read ONLY the exact `<section>` you need. Never load the whole file.
 
 <section name="usage">
-Install: pip install code-review-graph
-Setup: code-review-graph install && code-review-graph build && code-review-graph memory init
+Install: pip install repomind
+Setup: repomind install && repomind build && repomind memory init
 Load memory in CLAUDE.md: @.agent-memory/CLAUDE.md
 Commit: git add .agent-memory/ && git commit -m "chore: add repo memory"
-Daily use: code-review-graph memory prepare-context "<task>" before starting work.
-Auto-refresh: memory refreshes automatically on code-review-graph update.
+Daily use: repomind memory prepare-context "<task>" before starting work.
+Auto-refresh: memory refreshes automatically on repomind update.
 </section>
 
 <section name="memory">
@@ -30,7 +30,7 @@ Memory artifacts committed to Git: .agent-memory/
   overrides/global.yaml  — human corrections (never auto-overwritten)
   metadata/*.json        — freshness, confidence, sources
 
-Graph database (.code-review-graph/graph.db) is local-only — gitignored, rebuilt from source.
+Graph database (.repomind/graph.db) is local-only — gitignored, rebuilt from source.
 </section>
 
 <section name="review-delta">
@@ -56,16 +56,16 @@ Skills: build-graph, review-delta, review-pr
 </section>
 
 <section name="legal">
-MIT license. 100% local. No telemetry. Graph DB: .code-review-graph/graph.db (gitignored). Memory: .agent-memory/ (committed to Git).
+MIT license. 100% local. No telemetry. Graph DB: .repomind/graph.db (gitignored). Memory: .agent-memory/ (committed to Git).
 </section>
 
 <section name="watch">
-Run: code-review-graph watch (auto-updates graph on file save via watchdog, also refreshes memory)
+Run: repomind watch (auto-updates graph on file save via watchdog, also refreshes memory)
 Or use PostToolUse (Write|Edit|Bash) hooks for automatic background updates.
 </section>
 
 <section name="embeddings">
-Optional: pip install code-review-graph[embeddings]
+Optional: pip install repomind[embeddings]
 Then call embed_graph_tool to compute vectors.
 semantic_search_nodes_tool auto-uses vectors when available, falls back to keyword.
 Model: all-MiniLM-L6-v2 (384-dim, fast).
@@ -78,15 +78,15 @@ Parser: Tree-sitter via tree-sitter-language-pack
 
 <section name="troubleshooting">
 DB lock: SQLite WAL mode, auto-recovers. Only one build at a time.
-Large repos: First build 30-60s. Incremental <2s. Add patterns to .code-review-graphignore.
-Stale graph: Run code-review-graph build (full rebuild).
+Large repos: First build 30-60s. Incremental <2s. Add patterns to .repomindignore.
+Stale graph: Run repomind build (full rebuild).
 Missing nodes: Check language support + ignore patterns. Use full_rebuild=True on build_or_update_graph_tool.
-Memory stale: Run code-review-graph memory refresh --full.
-Graph absent: memory commands work in heuristic-only mode but run code-review-graph build for richer context.
+Memory stale: Run repomind memory refresh --full.
+Graph absent: memory commands work in heuristic-only mode but run repomind build for richer context.
 </section>
 
 **Instruction to Claude Code (always follow):**
-When user asks anything about "code-review-graph", "how to use", "commands", "memory", "prepare-context", etc.:
+When user asks anything about "repomind", "how to use", "commands", "memory", "prepare-context", etc.:
 1. Call get_docs_section_tool with the exact section name (memory, commands, usage, etc.).
 2. Use ONLY that content + current graph state.
 3. Never include full docs or source code in your reasoning.

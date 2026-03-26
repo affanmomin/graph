@@ -1,4 +1,4 @@
-# Contributing to code-review-graph
+# Contributing to repomind
 
 Thank you for your interest in contributing! This guide will help you get started.
 
@@ -6,8 +6,8 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ```bash
 # Clone the repository
-git clone https://github.com/tirth8205/code-review-graph.git
-cd code-review-graph
+git clone https://github.com/affanmomin/repomind.git
+cd repomind
 
 # Install with dev dependencies (requires uv)
 uv sync --extra dev
@@ -79,7 +79,7 @@ tests/                 # Test suite
 
 ## Reporting Issues
 
-- Use GitHub Issues: https://github.com/tirth8205/code-review-graph/issues
+- Use GitHub Issues: https://github.com/affanmomin/repomind/issues
 - Include: Python version, OS, steps to reproduce, error output
 
 ## License

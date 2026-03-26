@@ -1,17 +1,17 @@
 ## Install the Backend
 
-code-review-graph needs a Python backend to parse your codebase.
+repomind needs a Python backend to parse your codebase.
 
 **Requirements:** Python 3.10+
 
 **Recommended:** Install via [uv](https://docs.astral.sh/uv/):
 ```bash
-uv pip install code-review-graph
+uv pip install repomind
 ```
 
 **Alternatives:**
 ```bash
-pipx install code-review-graph
+pipx install repomind
 # or
-pip install code-review-graph
+pip install repomind
 ```

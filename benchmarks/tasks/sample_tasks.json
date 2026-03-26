@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Sample tasks for context-pack evaluation against the code-review-graph repo. Tasks 001-006 target the memory subsystem (code_review_graph/memory/) which is the only classified module on this repo. Tasks 007-008 are deliberate stress tests that target files outside the classified module — expected coverage is 0%, showing a real product limitation.",
+  "description": "Sample tasks for context-pack evaluation against the repomind repo. Tasks 001-006 target the memory subsystem (code_review_graph/memory/) which is the only classified module on this repo. Tasks 007-008 are deliberate stress tests that target files outside the classified module — expected coverage is 0%, showing a real product limitation.",
   "tasks": [
     {
       "id": "task-001",

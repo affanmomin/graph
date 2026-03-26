@@ -1,7 +1,7 @@
 # Product Context: Repo Memory for Claude Code
 
 > This document captures the Founder Memo, PRD, RFC, and TRD for the product direction.
-> The current codebase (`code-review-graph`) is the **code intelligence engine** (Layer A).
+> The current codebase (`repomind`) is the **code intelligence engine** (Layer A).
 > The work ahead is building the **memory layer** (Layer B) and **agent interface** (Layer C) on top of it.
 
 ---
@@ -130,7 +130,7 @@ A developer can:
 
 ### Architecture
 
-**Layer A: Code Intelligence Engine** ← *this is the current `code-review-graph` codebase*
+**Layer A: Code Intelligence Engine** ← *this is the current `repomind` codebase*
 - parse source code, build graph/index
 - map symbols, imports, references, dependencies
 - compute impact radius, detect changed files

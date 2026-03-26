@@ -8,13 +8,13 @@ real project. Every command shown here is implemented and runnable today.
 ## Prerequisites
 
 ```bash
-pip install code-review-graph
+pip install repomind
 # or, from source:
 uv sync --all-extras
 ```
 
-All examples below use `uv run code-review-graph ...`. If you installed via pip,
-drop `uv run` and call `code-review-graph` directly.
+All examples below use `uv run repomind ...`. If you installed via pip,
+drop `uv run` and call `repomind` directly.
 
 ---
 
@@ -23,7 +23,7 @@ drop `uv run` and call `code-review-graph` directly.
 Run `memory init` once to scan your repo and write the `.agent-memory/` folder.
 
 ```bash
-uv run code-review-graph memory init
+uv run repomind memory init
 ```
 
 Example output (abbreviated):
@@ -81,7 +81,7 @@ are the right place to add human corrections without touching generated files.
 Before starting a coding task, ask the memory system what's relevant:
 
 ```bash
-uv run code-review-graph memory prepare-context "add rate limiting to the API"
+uv run repomind memory prepare-context "add rate limiting to the API"
 ```
 
 Example output:
@@ -118,7 +118,7 @@ architecture docs by hand.
 For machine-readable output (e.g. piping to another tool):
 
 ```bash
-uv run code-review-graph memory prepare-context "add rate limiting" --json
+uv run repomind memory prepare-context "add rate limiting" --json
 ```
 
 ---
@@ -154,7 +154,7 @@ EOF
 Re-run `prepare-context` and the overrides will be reflected:
 
 ```bash
-uv run code-review-graph memory prepare-context "fix the payment webhook handler"
+uv run repomind memory prepare-context "fix the payment webhook handler"
 ```
 
 ```
@@ -169,7 +169,7 @@ uv run code-review-graph memory prepare-context "fix the payment webhook handler
 Re-run `memory init` to regenerate rule docs with the new overrides baked in:
 
 ```bash
-uv run code-review-graph memory init
+uv run repomind memory init
 git add .agent-memory/
 git commit -m "chore: add team overrides and refresh memory"
 ```
@@ -181,7 +181,7 @@ git commit -m "chore: add team overrides and refresh memory"
 Look up what the memory system knows about a specific area:
 
 ```bash
-uv run code-review-graph memory explain authentication
+uv run repomind memory explain authentication
 ```
 
 Example output:
@@ -208,8 +208,8 @@ Feature: Authentication
 Also works with file paths and module names:
 
 ```bash
-uv run code-review-graph memory explain src/auth/middleware.py
-uv run code-review-graph memory explain src.auth
+uv run repomind memory explain src/auth/middleware.py
+uv run repomind memory explain src.auth
 ```
 
 ---
@@ -219,7 +219,7 @@ uv run code-review-graph memory explain src.auth
 After merging PRs or pulling updates, check what changed in a specific area:
 
 ```bash
-uv run code-review-graph memory changed authentication
+uv run repomind memory changed authentication
 ```
 
 Example output:
@@ -245,10 +245,10 @@ After significant changes, refresh the memory:
 
 ```bash
 # Incremental — only regenerates what changed (fast, default)
-uv run code-review-graph memory refresh
+uv run repomind memory refresh
 
 # Full rebuild — regenerates everything
-uv run code-review-graph memory refresh --full
+uv run repomind memory refresh --full
 ```
 
 Example incremental output:
@@ -288,16 +288,16 @@ git commit -m "chore: refresh repo memory after auth refactor"
 
 ```bash
 # After pulling or making changes
-uv run code-review-graph memory refresh
+uv run repomind memory refresh
 
 # Before starting a task
-uv run code-review-graph memory prepare-context "<your task description>"
+uv run repomind memory prepare-context "<your task description>"
 
 # When you need more detail on one area
-uv run code-review-graph memory explain <feature-or-module>
+uv run repomind memory explain <feature-or-module>
 
 # When you want to understand what changed recently
-uv run code-review-graph memory changed <area>
+uv run repomind memory changed <area>
 ```
 
 ---
@@ -313,7 +313,7 @@ uv run code-review-graph memory changed <area>
 | `memory changed` — freshness-based change summary | ✅ |
 | `memory annotate` — scaffold override file in $EDITOR | Stub (T7) |
 | MCP tool access for Claude Code | ✅ (via existing tools.py) |
-| Automatic refresh on `code-review-graph update` | Hooks integrated |
+| Automatic refresh on `repomind update` | Hooks integrated |
 
 ---
 
