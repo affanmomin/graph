@@ -229,6 +229,26 @@ def explain_match(
         )
     lines.append(f"  Purpose    : {_purpose}")
 
+    # Hotspot note (4.2) and coupling note (4.3) — from graph when available
+    _call_sigs = None
+    _struct_sigs = None
+    _hotspots = []
+    if repo_root is not None and _node_summaries:  # graph was available
+        try:
+            from .graph_bridge import (
+                get_all_call_graph_signals,
+                get_all_structural_depth_signals,
+                get_hotspot_nodes,
+            )
+            _seed_files = obj.files[:10]
+            _cg_map = get_all_call_graph_signals({"_exp": _seed_files}, repo_root)
+            _call_sigs = _cg_map.get("_exp")
+            _sd_map = get_all_structural_depth_signals({"_exp": _seed_files}, repo_root)
+            _struct_sigs = _sd_map.get("_exp")
+            _hotspots = get_hotspot_nodes(_seed_files, repo_root, min_lines=40, max_nodes=3)
+        except Exception as _exc:
+            logger.debug("explain_match: phase4 signals failed: %s", _exc)
+
     # Key symbols — shown only when graph data is available and produces symbols.
     if _node_summaries:
         from .generator import _collect_symbols_from_summaries
@@ -242,6 +262,28 @@ def explain_match(
             if _functions:
                 sym_parts.append("Functions: " + ", ".join(f"`{f}`" for f in _functions))
             lines.append(f"  Key symbols: {' | '.join(sym_parts)}")
+    # Entry points and helpers from call graph (4.1)
+    if _call_sigs and _call_sigs.entry_points:
+        ep_str = ", ".join(f"`{e}`" for e in _call_sigs.entry_points[:3])
+        lines.append(f"  Entry points : {ep_str}")
+    if _call_sigs and _call_sigs.key_helpers:
+        h_str = ", ".join(f"`{h}`" for h in _call_sigs.key_helpers[:3])
+        lines.append(f"  Key helpers  : {h_str}")
+
+    # Hotspot note (4.2)
+    if _hotspots:
+        hs_str = ", ".join(f"`{h.name}` ({h.line_count} lines)" for h in _hotspots[:3])
+        lines.append(f"  Hotspots     : {hs_str}")
+
+    # Coupling note (4.3)
+    if _struct_sigs and _struct_sigs.inheritance_pairs:
+        inh_str = "; ".join(
+            f"`{c}` extends `{p}`" for c, p in _struct_sigs.inheritance_pairs[:2]
+        )
+        lines.append(f"  Inheritance  : {inh_str}")
+    if _struct_sigs and _struct_sigs.coupling_score >= 0.4:
+        lines.append(f"  Coupling     : {_struct_sigs.coupling_score:.0%} cross-file call density")
+
     lines.append("")
 
     # Main files

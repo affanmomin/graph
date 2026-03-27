@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Provides the **code_review_graph/memory** package/module boundary (13 file(s); classified by explicit package boundary).
+Provides the **code_review_graph/memory** package/module boundary (16 file(s); classified by explicit package boundary).
 
 ## Responsibilities
 
@@ -18,6 +18,7 @@ Provides the **code_review_graph/memory** package/module boundary (13 file(s); c
 - `code_review_graph/memory/classifier.py`
 - `code_review_graph/memory/commands.py`
 - `code_review_graph/memory/context_builder.py`
+- `code_review_graph/memory/flat_rescue.py`
 - `code_review_graph/memory/generator.py`
 - `code_review_graph/memory/graph_bridge.py`
 - `code_review_graph/memory/lookup.py`
@@ -26,6 +27,8 @@ Provides the **code_review_graph/memory** package/module boundary (13 file(s); c
 - `code_review_graph/memory/overrides.py`
 - `code_review_graph/memory/refresh.py`
 - `code_review_graph/memory/scanner.py`
+- `code_review_graph/memory/signal_cache.py`
+- `code_review_graph/memory/telemetry.py`
 - `code_review_graph/memory/writer.py`
 
 ## Related tests
@@ -36,15 +39,18 @@ Provides the **code_review_graph/memory** package/module boundary (13 file(s); c
 - `tests/test_memory_classifier_graph.py`
 - `tests/test_memory_cli.py`
 - `tests/test_memory_context_builder.py`
+- `tests/test_memory_context_builder_semantic.py`
 - `tests/test_memory_explain_graph.py`
+- `tests/test_memory_flat_rescue.py`
 - `tests/test_memory_generator.py`
+- `tests/test_memory_generator_vocab.py`
 - `tests/test_memory_graph_bridge.py`
 - `tests/test_memory_imports.py`
 - `tests/test_memory_integration.py`
 - `tests/test_memory_lookup.py`
+- `tests/test_memory_lookup_semantic.py`
 - `tests/test_memory_overrides.py`
-- `tests/test_memory_refresh.py`
-- `tests/test_memory_refresh_graph.py`
-- `tests/test_memory_scanner.py`
-- `tests/test_memory_tools.py`
-- `tests/test_memory_writer.py`
+- `tests/test_memory_phase4_graph_leverage.py`
+- `tests/test_memory_phase5_perf_ux.py`
+- `tests/test_memory_quality_verdict.py`
+- _…and 6 more_
