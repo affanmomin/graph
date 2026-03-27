@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "repo": "pallets/flask",
+  "repo_url": "https://github.com/pallets/flask",
+  "repo_clone": "git clone https://github.com/pallets/flask /tmp/flask-eval",
+  "description": "Tasks for validating repomind on a well-structured public app framework. Flask has named submodules (views, blueprints, cli, testing, sessions) and good test coverage. Expected: 3+ features detected, module confidence >= 0.6, all tasks hit 100% coverage.",
+  "setup_notes": [
+    "git clone https://github.com/pallets/flask /tmp/flask-eval",
+    "cd /tmp/flask-eval",
+    "python -m repomind build",
+    "python -m repomind memory init",
+    "python benchmarks/run_benchmark.py --repo /tmp/flask-eval --tasks benchmarks/tasks/public_repo_tasks.json"
+  ],
+  "expected_classification": {
+    "feature_count": ">=3",
+    "avg_feature_confidence": ">=0.6",
+    "repo_shape": "structured"
+  },
+  "tasks": [
+    {
+      "id": "flask-001",
+      "description": "Add a new route decorator to the Flask routing system",
+      "expected_features": ["routing", "views"],
+      "expected_modules": ["src/flask"],
+      "expected_files_contain": ["routing", "app"],
+      "notes": "Flask's routing logic lives in src/flask/routing.py and app.py"
+    },
+    {
+      "id": "flask-002",
+      "description": "Fix a bug in Flask's Blueprints registration",
+      "expected_features": ["blueprints"],
+      "expected_modules": ["src/flask"],
+      "expected_files_contain": ["blueprints", "sansio"],
+      "notes": "Blueprint registration is in src/flask/blueprints.py"
+    },
+    {
+      "id": "flask-003",
+      "description": "Add a new test helper to the Flask test client",
+      "expected_features": ["testing"],
+      "expected_modules": ["src/flask"],
+      "expected_files_contain": ["testing"],
+      "notes": "Test utilities are in src/flask/testing.py"
+    },
+    {
+      "id": "flask-004",
+      "description": "Change how Flask handles session cookies",
+      "expected_features": ["sessions"],
+      "expected_modules": ["src/flask"],
+      "expected_files_contain": ["sessions"],
+      "notes": "Session logic is in src/flask/sessions.py"
+    },
+    {
+      "id": "flask-005",
+      "description": "Add a new command to the Flask CLI",
+      "expected_features": ["cli"],
+      "expected_modules": ["src/flask"],
+      "expected_files_contain": ["cli"],
+      "notes": "CLI entry points are in src/flask/cli.py"
+    },
+    {
+      "id": "flask-006",
+      "description": "Debug signal handling in request context teardown",
+      "expected_features": ["signals", "context"],
+      "expected_modules": ["src/flask"],
+      "expected_files_contain": ["signals", "ctx"],
+      "notes": "Signals in src/flask/signals.py; context in src/flask/ctx.py"
+    }
+  ]
+}

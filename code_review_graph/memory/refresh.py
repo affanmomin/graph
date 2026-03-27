@@ -285,6 +285,34 @@ def execute_refresh(
     skipped: list[str] = []
     graph_expanded_updated: list[str] = []
 
+    # Fetch graph vocabulary and node summaries for the impacted artifacts.
+    # This ensures refreshed docs remain graph-grounded (same as memory init).
+    _vocabulary: dict[str, list[str]] = {}
+    _node_summaries: dict = {}
+    try:
+        from .graph_bridge import get_file_node_summary, get_file_vocabulary, graph_available
+        if graph_available(repo_root):
+            _all_slugs = (
+                set(plan.impacted_feature_slugs)
+                | set(plan.graph_expanded_feature_slugs)
+                | set(plan.impacted_module_slugs)
+                | set(plan.graph_expanded_module_slugs)
+            )
+            _all_files: list[str] = []
+            for slug in _all_slugs:
+                f = feature_by_slug.get(slug)
+                if f:
+                    _all_files.extend(f.files)
+                m = module_by_slug.get(slug)
+                if m:
+                    _all_files.extend(m.files)
+            _all_files = list(dict.fromkeys(_all_files))  # deduplicate, preserve order
+            if _all_files:
+                _vocabulary = get_file_vocabulary(_all_files, repo_root)
+                _node_summaries = get_file_node_summary(_all_files, repo_root)
+    except Exception as exc:
+        logger.debug("execute_refresh: graph vocabulary fetch failed: %s", exc)
+
     # --- repo.md ---
     if plan.update_repo:
         st = write_text_if_changed(dirs["root"] / "repo.md", generate_repo_summary(scan))
@@ -304,7 +332,14 @@ def execute_refresh(
             logger.warning("refresh: feature %r not found in current classification", slug)
             continue
         rel = f".agent-memory/features/{slug}.md"
-        st = write_text_if_changed(dirs["features"] / f"{slug}.md", generate_feature_doc(feature))
+        st = write_text_if_changed(
+            dirs["features"] / f"{slug}.md",
+            generate_feature_doc(
+                feature,
+                vocabulary=_vocabulary or None,
+                node_summaries=_node_summaries or None,
+            ),
+        )
         _record(st, rel, updated, skipped)
 
     # --- directly impacted modules ---
@@ -314,7 +349,14 @@ def execute_refresh(
             logger.warning("refresh: module %r not found in current classification", slug)
             continue
         rel = f".agent-memory/modules/{slug}.md"
-        st = write_text_if_changed(dirs["modules"] / f"{slug}.md", generate_module_doc(module))
+        st = write_text_if_changed(
+            dirs["modules"] / f"{slug}.md",
+            generate_module_doc(
+                module,
+                vocabulary=_vocabulary or None,
+                node_summaries=_node_summaries or None,
+            ),
+        )
         _record(st, rel, updated, skipped)
 
     # --- graph-expanded features (structurally related, not directly changed) ---
@@ -327,7 +369,14 @@ def execute_refresh(
             logger.warning("refresh: graph-expanded feature %r not found", slug)
             continue
         rel = f".agent-memory/features/{slug}.md"
-        st = write_text_if_changed(dirs["features"] / f"{slug}.md", generate_feature_doc(feature))
+        st = write_text_if_changed(
+            dirs["features"] / f"{slug}.md",
+            generate_feature_doc(
+                feature,
+                vocabulary=_vocabulary or None,
+                node_summaries=_node_summaries or None,
+            ),
+        )
         _record(st, rel, updated, skipped)
         if st != "unchanged":
             graph_expanded_updated.append(rel)
@@ -342,7 +391,14 @@ def execute_refresh(
             logger.warning("refresh: graph-expanded module %r not found", slug)
             continue
         rel = f".agent-memory/modules/{slug}.md"
-        st = write_text_if_changed(dirs["modules"] / f"{slug}.md", generate_module_doc(module))
+        st = write_text_if_changed(
+            dirs["modules"] / f"{slug}.md",
+            generate_module_doc(
+                module,
+                vocabulary=_vocabulary or None,
+                node_summaries=_node_summaries or None,
+            ),
+        )
         _record(st, rel, updated, skipped)
         if st != "unchanged":
             graph_expanded_updated.append(rel)

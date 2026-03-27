@@ -1,0 +1,422 @@
+{
+  "version": 2,
+  "repo": "C:\\Users\\Lenovo\\graph",
+  "timestamp": "20260326T202926Z",
+  "classification": {
+    "feature_count": 5,
+    "module_count": 1,
+    "avg_feature_confidence": 0.41,
+    "avg_module_confidence": 0.85,
+    "features_with_tests": 3,
+    "modules_with_deps": 0
+  },
+  "context_packs": [
+    {
+      "task_id": "task-001",
+      "description": "Add a new CLI command to the memory subsystem",
+      "files_returned": 18,
+      "features_matched": [
+        "Cli",
+        "Cache",
+        "Models"
+      ],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 93720,
+      "expected_files_hit": 1,
+      "expected_files_total": 1,
+      "coverage_pct": 100.0,
+      "files": [
+        "code-review-graph-vscode/src/backend/cli.ts",
+        "code_review_graph/cli.py",
+        "code_review_graph/memory/signal_cache.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/flat_rescue.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/telemetry.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-002",
+      "description": "Improve confidence scoring in the memory classifier",
+      "files_returned": 20,
+      "features_matched": [
+        "Core"
+      ],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 50483,
+      "expected_files_hit": 0,
+      "expected_files_total": 2,
+      "coverage_pct": 0.0,
+      "files": [
+        "benchmarks/run_benchmark.py",
+        "code-review-graph-vscode/src/backend/sqlite.ts",
+        "code-review-graph-vscode/src/backend/watcher.ts",
+        "code-review-graph-vscode/src/extension.ts",
+        "code-review-graph-vscode/src/features/blastRadius.ts",
+        "code-review-graph-vscode/src/features/cursorResolver.ts",
+        "code-review-graph-vscode/src/features/navigation.ts",
+        "code-review-graph-vscode/src/features/reviewAssistant.ts",
+        "code-review-graph-vscode/src/features/scmDecorations.ts",
+        "code-review-graph-vscode/src/onboarding/installer.ts",
+        "code-review-graph-vscode/src/onboarding/welcome.ts",
+        "code-review-graph-vscode/src/views/graphWebview.ts",
+        "code-review-graph-vscode/src/views/statusBar.ts",
+        "code-review-graph-vscode/src/views/treeItems.ts",
+        "code-review-graph-vscode/src/views/treeView.ts",
+        "code-review-graph-vscode/src/webview/graph.ts",
+        "code_review_graph/__init__.py",
+        "code_review_graph/__main__.py",
+        "code_review_graph/embeddings.py",
+        "code_review_graph/graph.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": false
+      }
+    },
+    {
+      "task_id": "task-003",
+      "description": "Refactor the context builder to support token budget limits",
+      "files_returned": 16,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 87339,
+      "expected_files_hit": 1,
+      "expected_files_total": 1,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/flat_rescue.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/signal_cache.py",
+        "code_review_graph/memory/telemetry.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-004",
+      "description": "Change how memory refresh planning decides which artifacts to regenerate",
+      "files_returned": 20,
+      "features_matched": [
+        "Core"
+      ],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 50483,
+      "expected_files_hit": 0,
+      "expected_files_total": 1,
+      "coverage_pct": 0.0,
+      "files": [
+        "benchmarks/run_benchmark.py",
+        "code-review-graph-vscode/src/backend/sqlite.ts",
+        "code-review-graph-vscode/src/backend/watcher.ts",
+        "code-review-graph-vscode/src/extension.ts",
+        "code-review-graph-vscode/src/features/blastRadius.ts",
+        "code-review-graph-vscode/src/features/cursorResolver.ts",
+        "code-review-graph-vscode/src/features/navigation.ts",
+        "code-review-graph-vscode/src/features/reviewAssistant.ts",
+        "code-review-graph-vscode/src/features/scmDecorations.ts",
+        "code-review-graph-vscode/src/onboarding/installer.ts",
+        "code-review-graph-vscode/src/onboarding/welcome.ts",
+        "code-review-graph-vscode/src/views/graphWebview.ts",
+        "code-review-graph-vscode/src/views/statusBar.ts",
+        "code-review-graph-vscode/src/views/treeItems.ts",
+        "code-review-graph-vscode/src/views/treeView.ts",
+        "code-review-graph-vscode/src/webview/graph.ts",
+        "code_review_graph/__init__.py",
+        "code_review_graph/__main__.py",
+        "code_review_graph/embeddings.py",
+        "code_review_graph/graph.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": false
+      }
+    },
+    {
+      "task_id": "task-005",
+      "description": "Add a new MCP tool to expose freshness metadata from .agent-memory",
+      "files_returned": 16,
+      "features_matched": [],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 87339,
+      "expected_files_hit": 1,
+      "expected_files_total": 1,
+      "coverage_pct": 100.0,
+      "files": [
+        "code_review_graph/memory/__init__.py",
+        "code_review_graph/memory/classifier.py",
+        "code_review_graph/memory/commands.py",
+        "code_review_graph/memory/context_builder.py",
+        "code_review_graph/memory/flat_rescue.py",
+        "code_review_graph/memory/generator.py",
+        "code_review_graph/memory/graph_bridge.py",
+        "code_review_graph/memory/lookup.py",
+        "code_review_graph/memory/metadata.py",
+        "code_review_graph/memory/models.py",
+        "code_review_graph/memory/overrides.py",
+        "code_review_graph/memory/refresh.py",
+        "code_review_graph/memory/scanner.py",
+        "code_review_graph/memory/signal_cache.py",
+        "code_review_graph/memory/telemetry.py",
+        "code_review_graph/memory/writer.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": true
+      }
+    },
+    {
+      "task_id": "task-006",
+      "description": "Update the graph bridge to expose co-neighbor relationships for classification",
+      "files_returned": 20,
+      "features_matched": [
+        "Core"
+      ],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 50483,
+      "expected_files_hit": 0,
+      "expected_files_total": 2,
+      "coverage_pct": 0.0,
+      "files": [
+        "benchmarks/run_benchmark.py",
+        "code-review-graph-vscode/src/backend/sqlite.ts",
+        "code-review-graph-vscode/src/backend/watcher.ts",
+        "code-review-graph-vscode/src/extension.ts",
+        "code-review-graph-vscode/src/features/blastRadius.ts",
+        "code-review-graph-vscode/src/features/cursorResolver.ts",
+        "code-review-graph-vscode/src/features/navigation.ts",
+        "code-review-graph-vscode/src/features/reviewAssistant.ts",
+        "code-review-graph-vscode/src/features/scmDecorations.ts",
+        "code-review-graph-vscode/src/onboarding/installer.ts",
+        "code-review-graph-vscode/src/onboarding/welcome.ts",
+        "code-review-graph-vscode/src/views/graphWebview.ts",
+        "code-review-graph-vscode/src/views/statusBar.ts",
+        "code-review-graph-vscode/src/views/treeItems.ts",
+        "code-review-graph-vscode/src/views/treeView.ts",
+        "code-review-graph-vscode/src/webview/graph.ts",
+        "code_review_graph/__init__.py",
+        "code_review_graph/__main__.py",
+        "code_review_graph/embeddings.py",
+        "code_review_graph/graph.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": false
+      }
+    },
+    {
+      "task_id": "task-007",
+      "description": "Fix a bug in the Tree-sitter parser for Python files",
+      "files_returned": 20,
+      "features_matched": [
+        "Core",
+        "Cache"
+      ],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 50483,
+      "expected_files_hit": 0,
+      "expected_files_total": 1,
+      "coverage_pct": 0.0,
+      "files": [
+        "benchmarks/run_benchmark.py",
+        "code-review-graph-vscode/src/backend/sqlite.ts",
+        "code-review-graph-vscode/src/backend/watcher.ts",
+        "code-review-graph-vscode/src/extension.ts",
+        "code-review-graph-vscode/src/features/blastRadius.ts",
+        "code-review-graph-vscode/src/features/cursorResolver.ts",
+        "code-review-graph-vscode/src/features/navigation.ts",
+        "code-review-graph-vscode/src/features/reviewAssistant.ts",
+        "code-review-graph-vscode/src/features/scmDecorations.ts",
+        "code-review-graph-vscode/src/onboarding/installer.ts",
+        "code-review-graph-vscode/src/onboarding/welcome.ts",
+        "code-review-graph-vscode/src/views/graphWebview.ts",
+        "code-review-graph-vscode/src/views/statusBar.ts",
+        "code-review-graph-vscode/src/views/treeItems.ts",
+        "code-review-graph-vscode/src/views/treeView.ts",
+        "code-review-graph-vscode/src/webview/graph.ts",
+        "code_review_graph/__init__.py",
+        "code_review_graph/__main__.py",
+        "code_review_graph/embeddings.py",
+        "code_review_graph/graph.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": false
+      }
+    },
+    {
+      "task_id": "task-008",
+      "description": "Generate a D3.js visualization of the dependency graph",
+      "files_returned": 20,
+      "features_matched": [
+        "Core"
+      ],
+      "modules_matched": [
+        "code_review_graph/memory"
+      ],
+      "tokens_estimated": 50483,
+      "expected_files_hit": 0,
+      "expected_files_total": 1,
+      "coverage_pct": 0.0,
+      "files": [
+        "benchmarks/run_benchmark.py",
+        "code-review-graph-vscode/src/backend/sqlite.ts",
+        "code-review-graph-vscode/src/backend/watcher.ts",
+        "code-review-graph-vscode/src/extension.ts",
+        "code-review-graph-vscode/src/features/blastRadius.ts",
+        "code-review-graph-vscode/src/features/cursorResolver.ts",
+        "code-review-graph-vscode/src/features/navigation.ts",
+        "code-review-graph-vscode/src/features/reviewAssistant.ts",
+        "code-review-graph-vscode/src/features/scmDecorations.ts",
+        "code-review-graph-vscode/src/onboarding/installer.ts",
+        "code-review-graph-vscode/src/onboarding/welcome.ts",
+        "code-review-graph-vscode/src/views/graphWebview.ts",
+        "code-review-graph-vscode/src/views/statusBar.ts",
+        "code-review-graph-vscode/src/views/treeItems.ts",
+        "code-review-graph-vscode/src/views/treeView.ts",
+        "code-review-graph-vscode/src/webview/graph.ts",
+        "code_review_graph/__init__.py",
+        "code_review_graph/__main__.py",
+        "code_review_graph/embeddings.py",
+        "code_review_graph/graph.py"
+      ],
+      "pass": {
+        "files_returned": true,
+        "tokens_estimated": false,
+        "coverage_pct": false
+      }
+    }
+  ],
+  "refresh": {
+    "changed_files": 3,
+    "directly_impacted": 3,
+    "graph_expanded": 0,
+    "total_plan_size": 3,
+    "reason": "incremental: 3 changed file(s), 3 artifact(s) directly impacted"
+  },
+  "explain": {
+    "targets": [
+      {
+        "target": "Cache",
+        "output_len": 500,
+        "criteria": {
+          "non_empty": true,
+          "has_confidence": true,
+          "has_files_section": true,
+          "has_purpose": true
+        },
+        "score": 1.0
+      },
+      {
+        "target": "Search",
+        "output_len": 352,
+        "criteria": {
+          "non_empty": true,
+          "has_confidence": true,
+          "has_files_section": true,
+          "has_purpose": true
+        },
+        "score": 1.0
+      },
+      {
+        "target": "Models",
+        "output_len": 496,
+        "criteria": {
+          "non_empty": true,
+          "has_confidence": true,
+          "has_files_section": true,
+          "has_purpose": true
+        },
+        "score": 1.0
+      }
+    ],
+    "avg_score": 1.0,
+    "pass": true
+  },
+  "cache": {
+    "cold_seconds": 0.451,
+    "warm_seconds": 0.616,
+    "speedup_ratio": 0.73,
+    "cache_hit": false
+  },
+  "timing": {
+    "init_seconds": 0.957,
+    "context_pack_seconds": 0.015
+  },
+  "thresholds": {
+    "feature_count": {
+      "op": ">=",
+      "value": 2
+    },
+    "avg_feature_confidence": {
+      "op": ">=",
+      "value": 0.5
+    },
+    "avg_module_confidence": {
+      "op": ">=",
+      "value": 0.5
+    },
+    "files_returned": {
+      "op": "<=",
+      "value": 20
+    },
+    "tokens_estimated": {
+      "op": "<=",
+      "value": 40000
+    },
+    "coverage_pct": {
+      "op": ">=",
+      "value": 50.0
+    }
+  }
+}
