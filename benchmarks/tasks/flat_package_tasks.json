@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "repo": "psf/requests",
+  "repo_url": "https://github.com/psf/requests",
+  "repo_clone": "git clone https://github.com/psf/requests /tmp/requests-eval",
+  "description": "Tasks for validating repomind on a canonical flat Python package. The 'requests' library keeps all source in a single requests/ directory with ~15 files. This is the textbook flat-package layout: no domain subdirectories, no subpackages. Expected: repo_shape='flat-package', flat_rescue activates, keyword-based feature groupings produced (auth, models, sessions, adapters).",
+  "setup_notes": [
+    "git clone https://github.com/psf/requests /tmp/requests-eval",
+    "cd /tmp/requests-eval",
+    "python -m repomind build",
+    "python -m repomind memory init",
+    "python benchmarks/run_benchmark.py --repo /tmp/requests-eval --tasks benchmarks/tasks/flat_package_tasks.json"
+  ],
+  "expected_classification": {
+    "repo_shape": "flat-package",
+    "feature_count": ">=2 (flat_rescue should produce auth, sessions, adapters at minimum)",
+    "avg_feature_confidence": ">=0.3 (heuristic-only; lower bar acceptable for flat repos)",
+    "flat_rescue_activated": true,
+    "notes": "The repo has no subdirectories — flat_rescue.py is the only classification path. Keyword groupings from _HIGH_DOMAIN_TOKENS should produce auth, models, sessions."
+  },
+  "tasks": [
+    {
+      "id": "flat-001",
+      "description": "Fix a bug in how requests handles HTTP authentication headers",
+      "expected_features": ["auth"],
+      "expected_modules": [],
+      "expected_files_contain": ["auth"],
+      "notes": "requests/auth.py — should be grouped into an 'Auth' or 'authentication' feature by flat_rescue"
+    },
+    {
+      "id": "flat-002",
+      "description": "Change how requests builds and sends HTTP sessions",
+      "expected_features": ["sessions"],
+      "expected_modules": [],
+      "expected_files_contain": ["sessions"],
+      "notes": "requests/sessions.py — large central file; likely entry point"
+    },
+    {
+      "id": "flat-003",
+      "description": "Update the HTTP adapter for connection pooling",
+      "expected_features": ["adapters"],
+      "expected_modules": [],
+      "expected_files_contain": ["adapters"],
+      "notes": "requests/adapters.py"
+    },
+    {
+      "id": "flat-004",
+      "description": "Add a new field to the requests Response model",
+      "expected_features": ["models"],
+      "expected_modules": [],
+      "expected_files_contain": ["models"],
+      "notes": "requests/models.py — contains Request and Response classes"
+    },
+    {
+      "id": "flat-005",
+      "description": "Debug cookie jar handling in requests",
+      "expected_features": ["cookies"],
+      "expected_modules": [],
+      "expected_files_contain": ["cookies"],
+      "notes": "requests/cookies.py"
+    }
+  ],
+  "interpretation": {
+    "pass_bar": "repo_shape='flat-package'; at least 2 features detected by flat_rescue; tasks 001-005 achieve >=50% coverage",
+    "fail_signal": "0 features and 0 modules (flat_rescue failed); or crash; or coverage 0% on all tasks",
+    "known_challenge": "Without a graph.db, all classification is keyword-based. Confidence will be low. The bar for flat repos is lower: correctness over confidence.",
+    "comparison_with_own_repo": "The repomind repo itself is NOT flat-package (it has code_review_graph/memory/ as a subpackage). requests/ is the canonical flat-package case."
+  }
+}

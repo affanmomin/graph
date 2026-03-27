@@ -1,12 +1,53 @@
 {
-  "features": [],
+  "features": [
+    {
+      "confidence": 0.5,
+      "file_count": 1,
+      "name": "Cache",
+      "slug": "cache",
+      "test_count": 25,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.35,
+      "file_count": 2,
+      "name": "Cli",
+      "slug": "cli",
+      "test_count": 0,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.3,
+      "file_count": 39,
+      "name": "Core",
+      "slug": "core",
+      "test_count": 32,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.4,
+      "file_count": 1,
+      "name": "Models",
+      "slug": "models",
+      "test_count": 25,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.5,
+      "file_count": 1,
+      "name": "Search",
+      "slug": "search",
+      "test_count": 0,
+      "type": "feature"
+    }
+  ],
   "modules": [
     {
       "confidence": 0.85,
-      "file_count": 13,
+      "file_count": 16,
       "name": "code_review_graph/memory",
       "slug": "code_review_graph-memory",
-      "test_count": 18,
+      "test_count": 26,
       "type": "module"
     }
   ]

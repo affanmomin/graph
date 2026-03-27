@@ -196,12 +196,94 @@ def explain_match(
     conf_note = _confidence_label(obj.confidence)
     lines.append(f"  Confidence : {conf_pct} ({conf_note})")
 
-    # Purpose (inline — keep it one line)
-    file_count = len(obj.files)
-    lines.append(
-        f"  Purpose    : {kind_label} covering {file_count} file(s). "
-        f"Classified by {_classification_source(obj.confidence)}."
-    )
+    # Fetch graph node summaries once — used for Purpose and Key symbols sections.
+    # Falls back gracefully when graph is absent or repo_root is not supplied.
+    _node_summaries: dict = {}
+    _vocabulary: dict = {}
+    if repo_root is not None:
+        try:
+            from .graph_bridge import get_file_node_summary, get_file_vocabulary, graph_available
+            if graph_available(repo_root):
+                _seed = obj.files[:10]
+                _node_summaries = get_file_node_summary(_seed, repo_root)
+                _vocabulary = get_file_vocabulary(_seed, repo_root)
+        except Exception as _exc:
+            logger.debug("explain_match: graph vocab fetch failed: %s", _exc)
+
+    # Purpose — graph-grounded when node_summaries or vocabulary are available;
+    # falls back to the path-count description otherwise.
+    from .models import FeatureMemory as _FeatureMemory
+    if isinstance(obj, _FeatureMemory):
+        from .generator import _feature_purpose
+        _purpose = _feature_purpose(
+            obj,
+            vocabulary=_vocabulary or None,
+            node_summaries=_node_summaries or None,
+        )
+    else:
+        from .generator import _module_purpose
+        _purpose = _module_purpose(
+            obj,
+            vocabulary=_vocabulary or None,
+            node_summaries=_node_summaries or None,
+        )
+    lines.append(f"  Purpose    : {_purpose}")
+
+    # Hotspot note (4.2) and coupling note (4.3) — from graph when available
+    _call_sigs = None
+    _struct_sigs = None
+    _hotspots = []
+    if repo_root is not None and _node_summaries:  # graph was available
+        try:
+            from .graph_bridge import (
+                get_all_call_graph_signals,
+                get_all_structural_depth_signals,
+                get_hotspot_nodes,
+            )
+            _seed_files = obj.files[:10]
+            _cg_map = get_all_call_graph_signals({"_exp": _seed_files}, repo_root)
+            _call_sigs = _cg_map.get("_exp")
+            _sd_map = get_all_structural_depth_signals({"_exp": _seed_files}, repo_root)
+            _struct_sigs = _sd_map.get("_exp")
+            _hotspots = get_hotspot_nodes(_seed_files, repo_root, min_lines=40, max_nodes=3)
+        except Exception as _exc:
+            logger.debug("explain_match: phase4 signals failed: %s", _exc)
+
+    # Key symbols — shown only when graph data is available and produces symbols.
+    if _node_summaries:
+        from .generator import _collect_symbols_from_summaries
+        _classes, _functions = _collect_symbols_from_summaries(
+            _node_summaries, obj.files[:10], max_classes=4, max_functions=4,
+        )
+        if _classes or _functions:
+            sym_parts: list[str] = []
+            if _classes:
+                sym_parts.append("Classes: " + ", ".join(f"`{c}`" for c in _classes))
+            if _functions:
+                sym_parts.append("Functions: " + ", ".join(f"`{f}`" for f in _functions))
+            lines.append(f"  Key symbols: {' | '.join(sym_parts)}")
+    # Entry points and helpers from call graph (4.1)
+    if _call_sigs and _call_sigs.entry_points:
+        ep_str = ", ".join(f"`{e}`" for e in _call_sigs.entry_points[:3])
+        lines.append(f"  Entry points : {ep_str}")
+    if _call_sigs and _call_sigs.key_helpers:
+        h_str = ", ".join(f"`{h}`" for h in _call_sigs.key_helpers[:3])
+        lines.append(f"  Key helpers  : {h_str}")
+
+    # Hotspot note (4.2)
+    if _hotspots:
+        hs_str = ", ".join(f"`{h.name}` ({h.line_count} lines)" for h in _hotspots[:3])
+        lines.append(f"  Hotspots     : {hs_str}")
+
+    # Coupling note (4.3)
+    if _struct_sigs and _struct_sigs.inheritance_pairs:
+        inh_str = "; ".join(
+            f"`{c}` extends `{p}`" for c, p in _struct_sigs.inheritance_pairs[:2]
+        )
+        lines.append(f"  Inheritance  : {inh_str}")
+    if _struct_sigs and _struct_sigs.coupling_score >= 0.4:
+        lines.append(f"  Coupling     : {_struct_sigs.coupling_score:.0%} cross-file call density")
+
     lines.append("")
 
     # Main files
@@ -350,10 +432,23 @@ def changed_match(
             if cf in known or any(cf.startswith(f.rsplit("/", 1)[0]) for f in known):
                 area_files.append(cf)
 
+    # Vocabulary for annotating changed files with key symbols.
+    # Fetched once here; also reused by the graph section below.
+    _changed_vocab: dict = {}
+    if repo_root is not None and area_files:
+        try:
+            from .graph_bridge import get_file_vocabulary, graph_available
+            if graph_available(repo_root):
+                _changed_vocab = get_file_vocabulary(area_files[:10], repo_root)
+        except Exception as _exc:
+            logger.debug("changed_match: vocab fetch failed: %s", _exc)
+
     if area_files:
         lines.append("  Recently changed in this area:")
         for f in area_files[:10]:
-            lines.append(f"    - {f}")
+            syms = _changed_vocab.get(f, [])[:4]
+            sym_note = f"  — {', '.join(f'`{s}`' for s in syms)}" if syms else ""
+            lines.append(f"    - {f}{sym_note}")
         lines.append("")
     else:
         lines.append("  No recent changes detected in this area.")

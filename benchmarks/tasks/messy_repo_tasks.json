@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "repo": "any repo with weak documentation and inconsistent structure",
+  "repo_url": "https://github.com/pallets/werkzeug",
+  "repo_clone": "git clone https://github.com/pallets/werkzeug /tmp/werkzeug-eval",
+  "description": "Tasks for validating repomind on a 'messy' repo: one where source files are distributed across multiple directories without clear domain keywords, docs are sparse, and the module structure is flatter than ideal. Werkzeug is chosen because it has a single src/werkzeug/ package with heterogeneous concerns (routing, serving, exceptions, datastructures, security, test) — hard to classify via directory keywords alone. Expected: classification should degrade gracefully, not crash.",
+  "setup_notes": [
+    "git clone https://github.com/pallets/werkzeug /tmp/werkzeug-eval",
+    "cd /tmp/werkzeug-eval",
+    "python -m repomind build",
+    "python -m repomind memory init",
+    "python benchmarks/run_benchmark.py --repo /tmp/werkzeug-eval --tasks benchmarks/tasks/messy_repo_tasks.json"
+  ],
+  "expected_classification": {
+    "feature_count": ">=1 (flat-rescue should activate)",
+    "repo_shape": "flat-package or mixed",
+    "no_crash": true,
+    "notes": "On a flat/mixed repo the classifier may produce 0 features; flat_rescue.py should provide fallback groupings. Key acceptance bar: no crash, at least 1 module detected."
+  },
+  "tasks": [
+    {
+      "id": "messy-001",
+      "description": "Fix a bug in Werkzeug's URL routing and pattern matching",
+      "expected_features": ["routing", "urls"],
+      "expected_modules": ["src/werkzeug"],
+      "expected_files_contain": ["routing", "urls"],
+      "notes": "Routing lives in src/werkzeug/routing/ — a subpackage. Should be detected as a module."
+    },
+    {
+      "id": "messy-002",
+      "description": "Add a new HTTP exception class to Werkzeug",
+      "expected_features": ["exceptions", "http"],
+      "expected_modules": ["src/werkzeug"],
+      "expected_files_contain": ["exceptions"],
+      "notes": "src/werkzeug/exceptions.py — flat file in root package"
+    },
+    {
+      "id": "messy-003",
+      "description": "Update how Werkzeug handles multipart form data",
+      "expected_features": ["formparser", "http"],
+      "expected_modules": ["src/werkzeug"],
+      "expected_files_contain": ["formparser"],
+      "notes": "src/werkzeug/formparser.py — single flat file"
+    },
+    {
+      "id": "messy-004",
+      "description": "Improve security in Werkzeug's HMAC-signed cookie utilities",
+      "expected_features": ["security", "crypto"],
+      "expected_modules": ["src/werkzeug"],
+      "expected_files_contain": ["security"],
+      "notes": "src/werkzeug/security.py"
+    },
+    {
+      "id": "messy-005",
+      "description": "Debug the Werkzeug development server's reloader",
+      "expected_features": ["serving", "debug"],
+      "expected_modules": ["src/werkzeug"],
+      "expected_files_contain": ["serving"],
+      "notes": "src/werkzeug/serving.py — large file, potential hotspot"
+    }
+  ],
+  "interpretation": {
+    "pass_bar": "No crash; at least 1 classified area; explain produces non-empty output for any target",
+    "fail_signal": "Zero features AND zero modules; or crash during init; or all context packs empty",
+    "known_challenge": "Flat single-package repos are the hardest case. The flat_rescue module should activate and provide keyword-based groupings as fallback."
+  }
+}
