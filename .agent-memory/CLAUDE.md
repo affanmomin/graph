@@ -12,7 +12,7 @@
 ## Top-level layout
 
 - `benchmarks/`
-- `repomind-vscode/`
+- `code-review-graph-vscode/`
 - `code_review_graph/`
 - `diagrams/`
 - `docs/`

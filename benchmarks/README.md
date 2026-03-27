@@ -126,15 +126,49 @@ A task file is a JSON object with a `"tasks"` array.  Each entry:
 
 ---
 
-## Evaluating three target repos
+## Evaluating four target repos
 
-The full evaluation plan runs the harness on:
+The full evaluation plan runs the harness on four repo types.  Task files for
+all four are included in `benchmarks/tasks/`.
 
-| Repo         | Why                                       | Custom tasks? |
-|--------------|-------------------------------------------|--------------|
-| This repo    | Known ground truth; ideal smoke test      | Yes (included) |
-| Messy repo   | Tests robustness on weak/absent docs      | Write custom  |
-| Public repo  | Real-world signal outside our own codebase | Write custom  |
+| Repo type       | Target repo        | Tasks file                    | Status (2026-03-27) |
+|-----------------|--------------------|-------------------------------|---------------------|
+| Own repo        | repomind (this)    | `tasks/sample_tasks.json`     | Run — see `results/graph-manual-2026-03-27.md` |
+| Public app repo | pallets/flask      | `tasks/public_repo_tasks.json` | Pending |
+| Messy/flat repo | pallets/werkzeug   | `tasks/messy_repo_tasks.json`  | Pending |
+| Flat package    | psf/requests       | `tasks/flat_package_tasks.json` | Pending |
+
+### Running a specific target repo
+
+```bash
+# Flask (public, well-structured app framework)
+git clone https://github.com/pallets/flask /tmp/flask-eval
+python -m repomind build --repo /tmp/flask-eval
+python -m repomind memory init --repo /tmp/flask-eval
+python benchmarks/run_benchmark.py \
+    --repo /tmp/flask-eval \
+    --tasks benchmarks/tasks/public_repo_tasks.json
+
+# Werkzeug (messy: flat single-package, heterogeneous concerns)
+git clone https://github.com/pallets/werkzeug /tmp/werkzeug-eval
+python benchmarks/run_benchmark.py \
+    --repo /tmp/werkzeug-eval \
+    --tasks benchmarks/tasks/messy_repo_tasks.json
+
+# requests (canonical flat-package: all files in one directory)
+git clone https://github.com/psf/requests /tmp/requests-eval
+python benchmarks/run_benchmark.py \
+    --repo /tmp/requests-eval \
+    --tasks benchmarks/tasks/flat_package_tasks.json
+```
+
+### Pass bars by repo type
+
+| Repo type    | feature_count | avg_confidence | coverage_pct |
+|--------------|--------------|---------------|-------------|
+| Structured app | >= 3        | >= 0.6        | >= 60%      |
+| Messy/single-pkg | >= 1      | >= 0.3        | >= 30%      |
+| Flat package | >= 2 (via flat_rescue) | >= 0.3 | >= 40% |
 
 For each repo:
 1. Run `run_benchmark.py`.
@@ -183,24 +217,29 @@ For each repo:
 | `tokens_estimated > 40 000`   | Module has many large files; pack returns all of them in fallback mode |
 | No `graph_expanded` slugs     | `.repomind/graph.db` not built     |
 
-### Results on this repo (repomind)
+### Results on this repo (repomind) — 2026-03-27
 
-This repo is itself a good stress-test case for the product. Its layout is **module-dominant with no domain-keyword feature directories**:
+Actual run from `benchmarks/results/graph-2026-03-27.json`:
 
-- `code_review_graph/memory/` — the only classified module (13 files)
-- `code_review_graph/*.py` (parser.py, graph.py, tools.py, etc.) — root package files, **not captured by any classified module**
+| Metric | Actual | Threshold | Pass? |
+|--------|--------|-----------|-------|
+| `feature_count` | 5 | >= 2 | PASS |
+| `avg_feature_confidence` | 0.41 | >= 0.5 | FAIL (no graph.db) |
+| `avg_module_confidence` | 0.85 | >= 0.5 | PASS |
+| `coverage_pct` tasks 001,003,005 | 100% | >= 50% | PASS |
+| `coverage_pct` tasks 002,004,006 | 0% | >= 50% | FAIL |
+| `coverage_pct` tasks 007,008 | 0% | N/A | Expected (stress tests) |
+| `tokens_estimated` | 50k–93k | <= 40k | FAIL (all tasks) |
+| explain quality (automated) | 1.0 | >= 0.75 | PASS |
+| refresh planning | 3/3 correct | — | PASS |
+| init time | 0.96s | — | PASS |
 
-Expected benchmark behavior on this repo:
+Key known limitations on this repo (library layout):
+- `code_review_graph/*.py` (parser.py, graph.py, tools.py, etc.) are in the root package and invisible to the classifier — **root-package blind spot**.
+- All tasks exceed the 40k token budget because the context builder returns all files in a matched area without intra-area ranking — **token overfetch**.
+- Tasks 007 and 008 are deliberate stress tests showing the root-package blind spot.
 
-| Metric | Expected | Why |
-|--------|----------|-----|
-| `feature_count` | 0 | No domain-keyword subdirectories (`auth/`, `billing/`, etc.) |
-| `module_count` | 1 | Only `code_review_graph/memory` is a named subpackage |
-| `coverage_pct` tasks 001-006 | 100% | Target files are all in the memory module |
-| `coverage_pct` tasks 007-008 | 0% | Deliberate stress tests; target files are in root package |
-| `tokens_estimated` | ~58k | 13 files × large file size; exceeds 40k budget in fallback mode |
-
-Tasks 007 and 008 in `sample_tasks.json` are intentionally failing stress tests. They demonstrate the **root-package blind spot**: files in `code_review_graph/*.py` that are not inside a named subpackage are invisible to the current classifier.
+Full analysis and blockers: `benchmarks/release_gate.md`.
 
 ---
 
