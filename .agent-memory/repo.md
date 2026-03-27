@@ -5,13 +5,13 @@
 ## Stack
 
 - **Languages**: c, cpp, csharp, go, java, kotlin, php, python, ruby, rust, solidity, swift, typescript, vue
-- **File counts**: python (53), typescript (19), c (1), cpp (1), csharp (1), go (1), java (1), kotlin (1), php (1), ruby (1), rust (1), solidity (1), swift (1), vue (1)
+- **File counts**: python (64), typescript (19), c (1), cpp (1), csharp (1), go (1), java (1), kotlin (1), php (1), ruby (1), rust (1), solidity (1), swift (1), vue (1)
 - **Config files**: .github, pyproject.toml
 
 ## Top-level structure
 
 - `benchmarks/`
-- `repomind-vscode/`
+- `code-review-graph-vscode/`
 - `code_review_graph/`
 - `diagrams/`
 - `docs/`
