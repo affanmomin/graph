@@ -15,8 +15,9 @@ Public API
 ----------
 generate_repo_summary(scan)                        -> str  (content for repo.md)
 generate_architecture_doc(scan)                    -> str  (content for architecture.md)
-generate_feature_doc(feature)                      -> str  (content for features/<slug>.md)
-generate_module_doc(module)                        -> str  (content for modules/<slug>.md)
+generate_feature_doc(feature, ...)                 -> str  (content for features/<slug>.md)
+generate_module_doc(module, ...)                   -> str  (content for modules/<slug>.md)
+generate_hotspots_doc(hotspots, scan)              -> str  (content for changes/hotspots.md)
 generate_conventions_doc(scan, overrides)          -> str  (content for rules/conventions.md)
 generate_safe_boundaries_doc(scan, overrides)      -> str  (content for rules/safe-boundaries.md)
 """
@@ -31,7 +32,12 @@ from .scanner import RepoScan
 from .writer import render_markdown_section
 
 if TYPE_CHECKING:
-    from .graph_bridge import FileNodeSummary
+    from .graph_bridge import (
+        CallGraphSignals,
+        FileNodeSummary,
+        HotspotNode,
+        StructuralDepthSignals,
+    )
     from .overrides import Overrides
 
 # Shared preamble for auto-generated files
@@ -372,6 +378,7 @@ def generate_feature_doc(
     feature: FeatureMemory,
     vocabulary: dict[str, list[str]] | None = None,
     node_summaries: "dict[str, FileNodeSummary] | None" = None,
+    call_signals: "CallGraphSignals | None" = None,
 ) -> str:
     """Generate content for ``.agent-memory/features/<slug>.md``.
 
@@ -417,12 +424,19 @@ def generate_feature_doc(
                 ", ".join(f"`{s}`" for s in key_symbols),
             ))
 
-    # Likely entry points — stem matching + vocabulary-aware detection
-    entry_points = _infer_entry_points(feature.files, vocabulary=vocabulary)
+    # Likely entry points — call-graph grounded (4.1), falling back to heuristics
+    entry_points = _resolve_entry_points(feature.files, vocabulary=vocabulary, call_signals=call_signals)
     if entry_points:
         sections.append(render_markdown_section(
             "Likely entry points",
             _render_file_list(entry_points, ""),
+        ))
+
+    # Key helpers — from call-graph fan-in analysis (4.1)
+    if call_signals and call_signals.key_helpers:
+        sections.append(render_markdown_section(
+            "Key helpers",
+            "\n".join(f"- `{h}`" for h in call_signals.key_helpers),
         ))
 
     # Related tests
@@ -459,6 +473,8 @@ def generate_module_doc(
     module: ModuleMemory,
     vocabulary: dict[str, list[str]] | None = None,
     node_summaries: "dict[str, FileNodeSummary] | None" = None,
+    call_signals: "CallGraphSignals | None" = None,
+    structural_signals: "StructuralDepthSignals | None" = None,
 ) -> str:
     """Generate content for ``.agent-memory/modules/<slug>.md``.
 
@@ -506,6 +522,21 @@ def generate_module_doc(
                 ", ".join(f"`{s}`" for s in key_symbols),
             ))
 
+    # Likely entry points — call-graph grounded (4.1)
+    mod_entry_points = _resolve_entry_points(module.files, vocabulary=vocabulary, call_signals=call_signals)
+    if mod_entry_points:
+        sections.append(render_markdown_section(
+            "Likely entry points",
+            _render_file_list(mod_entry_points, ""),
+        ))
+
+    # Key helpers — from call-graph fan-in analysis (4.1)
+    if call_signals and call_signals.key_helpers:
+        sections.append(render_markdown_section(
+            "Key helpers",
+            "\n".join(f"- `{h}`" for h in call_signals.key_helpers),
+        ))
+
     # Files
     sections.append(render_markdown_section(
         "Files",
@@ -532,8 +563,8 @@ def generate_module_doc(
         _render_file_list(module.tests, "No related tests detected."),
     ))
 
-    # Risk / coupling notes
-    risks = _module_risks(module)
+    # Risk / coupling notes — enriched with structural depth signals (4.3)
+    risks = _module_risks(module, structural_signals=structural_signals)
     if risks:
         sections.append(render_markdown_section(
             "Risk and coupling notes",
@@ -636,6 +667,27 @@ def _infer_entry_points(
                     break
 
     return sorted(result)[:5]
+
+
+def _resolve_entry_points(
+    files: list[str],
+    vocabulary: dict[str, list[str]] | None = None,
+    call_signals: "CallGraphSignals | None" = None,
+) -> list[str]:
+    """Merge call-graph entry points with heuristic stem matching.
+
+    Priority (Ticket 4.1):
+    1. ``call_signals.entry_points`` when available (CALLS-derived, most accurate).
+    2. Heuristic stem matching (``_infer_entry_points``) as fallback or supplement.
+
+    Returns up to 5 entry-point file paths, sorted for determinism.
+    """
+    if call_signals and call_signals.entry_points:
+        # Call-graph entry points are authoritative; add heuristic ones as supplement.
+        heuristic = set(_infer_entry_points(files, vocabulary=vocabulary))
+        combined = list(dict.fromkeys([*call_signals.entry_points, *sorted(heuristic)]))
+        return combined[:5]
+    return _infer_entry_points(files, vocabulary=vocabulary)
 
 
 # ---------------------------------------------------------------------------
@@ -862,8 +914,15 @@ def _top_symbols(vocabulary: dict[str, list[str]], files: list[str], max_total: 
     return symbols[:max_total]
 
 
-def _module_risks(module: ModuleMemory) -> str:
-    """Return risk/coupling notes for a module doc."""
+def _module_risks(
+    module: ModuleMemory,
+    structural_signals: "StructuralDepthSignals | None" = None,
+) -> str:
+    """Return risk/coupling notes for a module doc.
+
+    When *structural_signals* are provided (Ticket 4.3), adds graph-grounded
+    notes on inheritance hierarchy and cross-file coupling.
+    """
     lines: list[str] = []
     if module.confidence < 0.6:
         lines.append(
@@ -881,6 +940,20 @@ def _module_risks(module: ModuleMemory) -> str:
             f"{', '.join(sorted(module.dependents)[:3])}. "
             "Changes here have broad impact."
         )
+    # Structural depth notes (4.3)
+    if structural_signals:
+        if structural_signals.inheritance_pairs:
+            pairs_str = "; ".join(
+                f"`{child}` extends `{parent}`"
+                for child, parent in structural_signals.inheritance_pairs[:3]
+            )
+            lines.append(f"Inheritance hierarchy detected: {pairs_str}.")
+        if structural_signals.coupling_score >= 0.4 and structural_signals.coupling_files:
+            coupled = ", ".join(f"`{f}`" for f in structural_signals.coupling_files[:3])
+            lines.append(
+                f"Moderately coupled (score {structural_signals.coupling_score:.0%}): "
+                f"most-called files: {coupled}."
+            )
     return "\n".join(f"- {line}" for line in lines)
 
 
@@ -914,6 +987,81 @@ def _classification_source(confidence: float) -> str:
     if confidence >= 0.65:
         return "directory name heuristic"
     return "weak heuristic (low confidence)"
+
+
+# ---------------------------------------------------------------------------
+# changes/hotspots.md  (Ticket 4.2)
+# ---------------------------------------------------------------------------
+
+_HOTSPOT_PREAMBLE = (
+    "> Auto-generated by repo-memory. "
+    "Lists the largest functions and classes by line count — "
+    "potential complexity hotspots that deserve extra care when changed."
+)
+
+
+def generate_hotspots_doc(
+    hotspots: "list[HotspotNode]",
+    scan: RepoScan,
+) -> str:
+    """Generate content for ``.agent-memory/changes/hotspots.md``.
+
+    Args:
+        hotspots: List of :class:`~graph_bridge.HotspotNode`, largest first.
+        scan:     Populated :class:`~scanner.RepoScan` (used for the header).
+
+    Returns:
+        Markdown string ready to be written to disk.  Returns a short
+        "no hotspots found" stub when *hotspots* is empty.
+    """
+    sections: list[str] = []
+    repo_name = scan.repo_root.name or "this-repo"
+    sections.append(f"# Hotspots: {repo_name}\n\n{_HOTSPOT_PREAMBLE}")
+
+    if not hotspots:
+        sections.append(render_markdown_section(
+            "Hotspot summary",
+            "No functions or classes exceed the size threshold — good shape.",
+        ))
+        return "\n\n".join(sections)
+
+    # Group by file for readability
+    by_file: dict[str, list["HotspotNode"]] = {}
+    for h in hotspots:
+        by_file.setdefault(h.file_path, []).append(h)
+
+    rows: list[str] = []
+    for fp in sorted(by_file.keys()):
+        file_nodes = sorted(by_file[fp], key=lambda n: -n.line_count)
+        rows.append(f"**`{fp}`**")
+        for node in file_nodes:
+            rows.append(
+                f"  - `{node.name}` ({node.kind}, {node.line_count} lines)"
+            )
+
+    sections.append(render_markdown_section(
+        "Hotspot summary",
+        f"Found **{len(hotspots)}** large symbol(s) across "
+        f"**{len(by_file)}** file(s).\n\n" + "\n".join(rows),
+    ))
+
+    # Risk guidance
+    very_large = [h for h in hotspots if h.line_count >= 150]
+    guidance: list[str] = []
+    if very_large:
+        guidance.append(
+            f"{len(very_large)} symbol(s) exceed 150 lines — "
+            "consider breaking them into smaller units."
+        )
+    guidance.append(
+        "When modifying hotspot files, run tests for the entire containing feature/module."
+    )
+    sections.append(render_markdown_section(
+        "Guidance",
+        "\n".join(f"- {g}" for g in guidance),
+    ))
+
+    return "\n\n".join(sections)
 
 
 # ---------------------------------------------------------------------------

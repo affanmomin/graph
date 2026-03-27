@@ -185,6 +185,7 @@ def run_memory_init_pipeline(root: Path) -> dict:
     from .generator import (  # noqa: I001
         generate_repo_summary, generate_architecture_doc,
         generate_feature_doc, generate_module_doc,
+        generate_hotspots_doc,
         generate_conventions_doc, generate_safe_boundaries_doc,
         generate_claude_memory_doc,
     )
@@ -203,17 +204,85 @@ def run_memory_init_pipeline(root: Path) -> dict:
     # 2b. Fetch graph vocabulary and per-file node summaries for content-aware generation
     vocabulary: dict[str, list[str]] = {}
     node_summaries: dict = {}
+
+    # 2b-pre. Check signal cache before hitting graph.db
+    _cache_hit = False
+    _cached: object = None
+    all_files_for_cache: list[str] = []
     try:
-        from .graph_bridge import get_file_node_summary, get_file_vocabulary, graph_available
-        if graph_available(root):
-            all_files = list({f for item in [*features, *modules] for f in item.files})
-            vocabulary = get_file_vocabulary(all_files, root)
-            node_summaries = get_file_node_summary(all_files, root)
-    except Exception:
-        vocabulary = {}
-        node_summaries = {}
+        from .graph_bridge import graph_available as _graph_available_check
+        from .signal_cache import CachedSignals, compute_cache_key, load_signal_cache, save_signal_cache
+        _db_path = root / ".code-review-graph" / "graph.db"
+        if _graph_available_check(root):
+            all_files_for_cache = sorted({f for item in [*features, *modules] for f in item.files})
+            _new_key = compute_cache_key(_db_path, all_files_for_cache)
+            _loaded = load_signal_cache(root)
+            if _loaded is not None and _loaded.cache_key == _new_key:
+                _cached = _loaded
+                _cache_hit = True
+                logger.debug("signal_cache: cache HIT (key=%s)", _new_key[:12])
+            else:
+                logger.debug("signal_cache: cache MISS (key=%s)", _new_key[:12])
+    except Exception as _ce:
+        logger.debug("signal_cache: cache lookup failed: %s", _ce)
+
+    if _cache_hit and _cached is not None:
+        vocabulary = _cached.vocabulary  # type: ignore[union-attr]
+        node_summaries = _cached.node_summaries  # type: ignore[union-attr]
+    else:
+        try:
+            from .graph_bridge import get_file_node_summary, get_file_vocabulary, graph_available
+            if graph_available(root):
+                all_files = list({f for item in [*features, *modules] for f in item.files})
+                vocabulary = get_file_vocabulary(all_files, root)
+                node_summaries = get_file_node_summary(all_files, root)
+        except Exception:
+            vocabulary = {}
+            node_summaries = {}
 
     vocabulary_used = bool(vocabulary)
+
+    # 2c. Fetch call-graph, structural-depth, and hotspot signals (Phase 4)
+    call_signals_map: dict[str, object] = {}
+    structural_signals_map: dict[str, object] = {}
+    hotspot_nodes: list = []
+
+    if _cache_hit and _cached is not None:
+        call_signals_map = _cached.call_signals_map  # type: ignore[union-attr]
+        structural_signals_map = _cached.structural_signals_map  # type: ignore[union-attr]
+        hotspot_nodes = _cached.hotspot_nodes  # type: ignore[union-attr]
+    else:
+        try:
+            from .graph_bridge import (
+                get_all_call_graph_signals,
+                get_all_hotspot_nodes,
+                get_all_structural_depth_signals,
+            )
+            if vocabulary_used:  # graph is available (vocabulary was already fetched)
+                all_files = list({f for item in [*features, *modules] for f in item.files})
+                feature_groups = {f.name: f.files for f in features}
+                module_groups = {m.name: m.files for m in modules}
+                all_groups = {**feature_groups, **module_groups}
+                call_signals_map = get_all_call_graph_signals(all_groups, root)
+                structural_signals_map = get_all_structural_depth_signals(module_groups, root)
+                hotspot_nodes = get_all_hotspot_nodes(root)
+        except Exception:
+            pass
+
+        # Save computed signals to cache for next run (only when graph was used)
+        if vocabulary_used and all_files_for_cache:
+            try:
+                from .signal_cache import compute_cache_key, save_signal_cache
+                _db_path = root / ".code-review-graph" / "graph.db"
+                _key = compute_cache_key(_db_path, all_files_for_cache)
+                save_signal_cache(
+                    root, _key,
+                    vocabulary, node_summaries,
+                    call_signals_map, structural_signals_map,
+                    hotspot_nodes,
+                )
+            except Exception as _se:
+                logger.debug("signal_cache: failed to save after compute: %s", _se)
 
     # 3. Ensure directory tree
     dirs = ensure_memory_dirs(root)
@@ -245,6 +314,7 @@ def run_memory_init_pipeline(root: Path) -> dict:
                 feature,
                 vocabulary=vocabulary or None,
                 node_summaries=node_summaries or None,
+                call_signals=call_signals_map.get(feature.name) or None,
             ),
         )
         write_statuses[rel] = st
@@ -263,12 +333,23 @@ def run_memory_init_pipeline(root: Path) -> dict:
                 module,
                 vocabulary=vocabulary or None,
                 node_summaries=node_summaries or None,
+                call_signals=call_signals_map.get(module.name) or None,
+                structural_signals=structural_signals_map.get(module.name) or None,
             ),
         )
         write_statuses[rel] = st
         module_statuses.append((rel, st))
         artifacts.append({"artifact_id": f"module:{slug}", "artifact_type": "module",
                            "relative_path": rel})
+
+    # 6b. Hotspots doc (Ticket 4.2) — written only when graph data is available
+    rel_hotspots = ".agent-memory/changes/hotspots.md"
+    hotspots_content = generate_hotspots_doc(hotspot_nodes, scan)
+    write_statuses[rel_hotspots] = write_text_if_changed(
+        dirs["changes"] / "hotspots.md", hotspots_content
+    )
+    artifacts.append({"artifact_id": "changes:hotspots", "artifact_type": "changes",
+                       "relative_path": rel_hotspots})
 
     # 7. Load overrides and write rule docs
     overrides = load_overrides(dirs["root"])
@@ -315,6 +396,8 @@ def run_memory_init_pipeline(root: Path) -> dict:
         "feature_statuses": feature_statuses,
         "module_statuses": module_statuses,
         "vocabulary_used": vocabulary_used,
+        "repo_shape": scan.repo_shape,
+        "shape_rationale": scan.shape_rationale,
     }
 
 
@@ -341,6 +424,18 @@ def memory_init_command(args: argparse.Namespace) -> None:
     print(f"repo-memory: init")
     print(f"  scanning {repo_root} ...")
 
+    # Early graph-missing notice — before the (slower) pipeline runs, so the
+    # user understands degraded mode immediately.
+    _db_check = repo_root / ".code-review-graph" / "graph.db"
+    if not _db_check.exists():
+        print()
+        print("  NOTE: graph.db not found — running in heuristic-only mode.")
+        print("  For richer output (call graphs, import chains, entry points), run first:")
+        print("    repomind build")
+        print("  then re-run:")
+        print("    repomind memory init")
+        print()
+
     _t0 = time.perf_counter()
     result = run_memory_init_pipeline(repo_root)
     _duration = time.perf_counter() - _t0
@@ -359,6 +454,7 @@ def memory_init_command(args: argparse.Namespace) -> None:
     print(f"  source dirs : {', '.join(scan.source_dirs) or 'none detected'}")
     print(f"  test dirs   : {', '.join(scan.test_dirs) or 'none detected'}")
     print(f"  confidence  : {scan.confidence:.0%}")
+    print(f"  repo shape  : {scan.repo_shape}")
     print(f"  features    : {len(features)}")
     print(f"  modules     : {len(modules)}")
     print()
@@ -368,6 +464,7 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print(f"  {rel} [{st}]")
     for rel, st in module_statuses:
         print(f"  {rel} [{st}]")
+    print(f"  .agent-memory/changes/hotspots.md      [{write_statuses.get('.agent-memory/changes/hotspots.md', 'skip')}]")
     print(f"  .agent-memory/rules/conventions.md     [{write_statuses['.agent-memory/rules/conventions.md']}]")
     print(f"  .agent-memory/rules/safe-boundaries.md [{write_statuses['.agent-memory/rules/safe-boundaries.md']}]")
     print(f"  .agent-memory/CLAUDE.md                [{write_statuses['.agent-memory/CLAUDE.md']}]")
@@ -379,6 +476,14 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print("  Notes:")
         for note in scan.notes:
             print(f"    - {note}")
+        print()
+
+    # Flat-package notice
+    if scan.repo_shape == "flat-package":
+        print("  Note: flat-package layout detected.")
+        print(f"    {scan.shape_rationale}")
+        print("    Feature groupings may be approximate — consider adding overrides/")
+        print("    to improve classification accuracy.")
         print()
 
     # Fix 5: graph-missing degraded mode notice
@@ -570,6 +675,19 @@ def memory_explain_command(args: argparse.Namespace) -> None:
     print(f"  target    : {target}")
     print()
 
+    # Degraded-mode notice before expensive classification
+    _expl_agent_mem = _agent_memory_root(repo_root)
+    _expl_memory_initialized = (_expl_agent_mem / "metadata" / "manifest.json").exists()
+    _expl_graph_exists = (repo_root / ".code-review-graph" / "graph.db").exists()
+    if not _expl_memory_initialized:
+        print("  Hint: memory not initialized — explanation is heuristic-only.")
+        print("  Run `repomind build` then `repomind memory init` for graph-grounded output.")
+        print()
+    elif not _expl_graph_exists:
+        print("  Hint: graph.db absent — graph signals unavailable.")
+        print("  Run `repomind build` for call-graph and entry-point data.")
+        print()
+
     scan = scan_repo(repo_root)
     features = classify_features(repo_root, scan)
     modules = classify_modules(repo_root, scan)
@@ -619,6 +737,21 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     if not task:
         print("Error: task description cannot be empty.", flush=True)
         raise SystemExit(1)
+
+    # First-run degraded-mode hints (shown before the pipeline runs)
+    _agent_mem = _agent_memory_root(repo_root)
+    _db_exists = (repo_root / ".code-review-graph" / "graph.db").exists()
+    _memory_initialized = (_agent_mem / "metadata" / "manifest.json").exists()
+    if not _memory_initialized:
+        print("  Hint: .agent-memory/ not yet initialized.")
+        print("  For best results run:")
+        print("    repomind build          # parse repo into graph")
+        print("    repomind memory init    # generate memory artifacts")
+        print()
+    elif not _db_exists:
+        print("  Hint: graph.db not found — running in heuristic-only mode.")
+        print("  Run `repomind build` for graph-grounded context.")
+        print()
 
     # Classify — fast, deterministic, no LLMs
     _t0 = time.perf_counter()
@@ -700,7 +833,10 @@ def _print_pack_text(pack) -> None:
     print()
 
     if pack.is_empty():
-        print("  No relevant context found. Run `memory init` to generate memory artifacts.")
+        print("  No relevant context found.")
+        print("  To generate memory artifacts, run:")
+        print("    repomind build          # parse repo into graph (if not done)")
+        print("    repomind memory init    # generate .agent-memory/ artifacts")
 
 
 def _print_pack_json(pack) -> None:
@@ -744,6 +880,19 @@ def memory_changed_command(args: argparse.Namespace) -> None:
     print(f"  repo root : {repo_root}")
     print(f"  target    : {target}")
     print()
+
+    # Degraded-mode notice before expensive classification
+    _chg_agent_mem = _agent_memory_root(repo_root)
+    _chg_memory_initialized = (_chg_agent_mem / "metadata" / "manifest.json").exists()
+    _chg_graph_exists = (repo_root / ".code-review-graph" / "graph.db").exists()
+    if not _chg_memory_initialized:
+        print("  Hint: memory not initialized — change summary will be limited.")
+        print("  Run `repomind build` then `repomind memory init` for full change tracking.")
+        print()
+    elif not _chg_graph_exists:
+        print("  Hint: graph.db absent — graph impact analysis unavailable.")
+        print("  Run `repomind build` to enable structural change impact.")
+        print()
 
     scan = scan_repo(repo_root)
     features = classify_features(repo_root, scan)

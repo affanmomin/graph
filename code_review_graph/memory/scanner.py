@@ -77,6 +77,15 @@ _SRC_DIR_NAMES: frozenset[str] = frozenset({
     "core", "internal", "cmd", "pkg",
 })
 
+# Test file stem indicators — shared with classifier and flat_rescue
+_TEST_PREFIXES: tuple[str, ...] = ("test_", "spec_")
+_TEST_SUFFIXES: tuple[str, ...] = ("_test", "_spec", ".test", ".spec")
+
+# Shape detection thresholds
+_SHAPE_MIN_FILES: int = 3       # need at least this many source files to classify shape
+_FLAT_MIN_FILES: int = 5        # flat-package requires at least this many files in ≤1 dir
+_STRUCTURED_MIN_DIRS: int = 3   # structured requires at least this many unique parent dirs
+
 # Config files that give strong framework / stack hints
 _CONFIG_FILES: dict[str, str] = {
     "pyproject.toml": "python",
@@ -161,6 +170,8 @@ class RepoScan:
     readme_path: str = ""
     confidence: float = 1.0
     notes: list[str] = field(default_factory=list)
+    repo_shape: str = "unknown"          # "structured" | "mixed" | "flat-package" | "unknown"
+    shape_rationale: str = ""            # human-readable explanation of the shape verdict
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +208,9 @@ def scan_repo(repo_root: Path) -> RepoScan:
 
     # --- Classify dirs into source / test / docs ---
     _classify_dirs(repo_root, scan)
+
+    # --- Repo shape ---
+    _detect_shape(repo_root, scan)
 
     # --- Confidence ---
     scan.confidence = _compute_confidence(scan)
@@ -304,6 +318,62 @@ def _classify_dirs(repo_root: Path, scan: RepoScan) -> None:
     scan.source_dirs = sorted(src)
     scan.test_dirs = sorted(tests)
     scan.docs_dirs = sorted(docs)
+
+
+def _detect_shape(repo_root: Path, scan: RepoScan) -> None:
+    """Classify the repository layout shape and store result on *scan*.
+
+    Uses the number of unique parent directories of non-test source files as
+    the primary signal:
+    - ``flat-package``: ≤1 unique parent dir AND ≥ _FLAT_MIN_FILES source files
+    - ``structured``:  ≥ _STRUCTURED_MIN_DIRS unique parent dirs
+    - ``mixed``:       everything in between
+    - ``unknown``:     fewer than _SHAPE_MIN_FILES source files found
+    """
+    parent_dirs: set[str] = set()
+    total = 0
+
+    for path in _walk_source_files(repo_root):
+        # Skip test files so they don't inflate the directory count
+        stem = path.stem.lower()
+        if any(stem.startswith(p) for p in _TEST_PREFIXES):
+            continue
+        if any(stem.endswith(s) for s in _TEST_SUFFIXES):
+            continue
+        # Skip files that live inside a test directory
+        try:
+            parts = path.relative_to(repo_root).parts
+        except ValueError:
+            continue
+        if any(p.lower() in _TEST_DIR_NAMES for p in parts[:-1]):
+            continue
+
+        total += 1
+        # Parent dir relative to repo_root (or "." for root-level files)
+        rel_parent = path.parent.relative_to(repo_root)
+        parent_dirs.add(str(rel_parent))
+
+    n_dirs = len(parent_dirs)
+
+    if total < _SHAPE_MIN_FILES:
+        scan.repo_shape = "unknown"
+        scan.shape_rationale = f"Too few source files to classify ({total} found, need ≥{_SHAPE_MIN_FILES})."
+    elif n_dirs <= 1 and total >= _FLAT_MIN_FILES:
+        scan.repo_shape = "flat-package"
+        scan.shape_rationale = (
+            f"All {total} source files share ≤1 parent directory — classic flat-package layout."
+        )
+    elif n_dirs >= _STRUCTURED_MIN_DIRS:
+        scan.repo_shape = "structured"
+        scan.shape_rationale = (
+            f"{total} source files spread across {n_dirs} directories — conventional structured layout."
+        )
+    else:
+        scan.repo_shape = "mixed"
+        scan.shape_rationale = (
+            f"{total} source files in {n_dirs} director{'y' if n_dirs == 1 else 'ies'} "
+            f"— partial structure, may benefit from conventional layout."
+        )
 
 
 # ---------------------------------------------------------------------------

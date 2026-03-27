@@ -128,6 +128,100 @@ def run_init(repo_root: Path) -> tuple[dict, float]:
     return result, elapsed
 
 
+def collect_explain_metrics(
+    features: list[Any],
+    modules: list[Any],
+    agent_memory_root: Path,
+    repo_root: Path,
+    max_targets: int = 3,
+) -> dict[str, Any]:
+    """Auto-score explain output quality for the top classified items.
+
+    Scores each target on four binary criteria:
+      - non_empty:          output length > 50 chars
+      - has_confidence:     output contains the word "Confidence"
+      - has_files_section:  output contains "Main files" or "Files:"
+      - has_purpose:        output contains "Purpose"
+
+    Args:
+        features:         Classified features.
+        modules:          Classified modules.
+        agent_memory_root: Path to ``.agent-memory/``.
+        repo_root:        Repository root.
+        max_targets:      Max features/modules to evaluate (default 3).
+
+    Returns:
+        Dict with keys ``targets`` (list of per-item scores) and
+        ``avg_score`` (0.0–1.0, mean fraction of criteria met).
+    """
+    from code_review_graph.memory.lookup import explain_match, match_target
+
+    items = sorted(features, key=lambda f: -f.confidence)[:max_targets]
+    if not items:
+        items = sorted(modules, key=lambda m: -m.confidence)[:max_targets]
+
+    results: list[dict[str, Any]] = []
+    for item in items:
+        match = match_target(item.name, agent_memory_root, features, modules)
+        output = explain_match(match, agent_memory_root, repo_root=repo_root)
+
+        criteria = {
+            "non_empty": len(output) > 50,
+            "has_confidence": "Confidence" in output or "confidence" in output,
+            "has_files_section": "Main files" in output or "Files:" in output,
+            "has_purpose": "Purpose" in output or "purpose" in output,
+        }
+        score = sum(criteria.values()) / len(criteria)
+        results.append({
+            "target": item.name,
+            "output_len": len(output),
+            "criteria": criteria,
+            "score": round(score, 2),
+        })
+
+    avg = _mean([r["score"] for r in results]) if results else 0.0
+    passed = avg >= 0.75  # at least 3/4 criteria met on average
+    return {
+        "targets": results,
+        "avg_score": round(avg, 3),
+        "pass": passed,
+    }
+
+
+def collect_cache_timing(repo_root: Path) -> dict[str, Any]:
+    """Measure cache hit speedup by running init twice.
+
+    First run populates the signal cache.  Second run reads from it.
+    Reports both durations and the speedup ratio.
+
+    Args:
+        repo_root: Repository root.
+
+    Returns:
+        Dict with ``cold_seconds``, ``warm_seconds``, ``speedup_ratio``,
+        and ``cache_hit`` (bool — whether second run was faster).
+    """
+    from code_review_graph.memory.commands import run_memory_init_pipeline
+
+    # Cold run (may already be warm from init step; that's acceptable)
+    t0 = time.perf_counter()
+    run_memory_init_pipeline(repo_root)
+    cold = time.perf_counter() - t0
+
+    # Warm run — should hit cache
+    t0 = time.perf_counter()
+    run_memory_init_pipeline(repo_root)
+    warm = time.perf_counter() - t0
+
+    ratio = round(cold / warm, 2) if warm > 0 else 1.0
+    return {
+        "cold_seconds": round(cold, 3),
+        "warm_seconds": round(warm, 3),
+        "speedup_ratio": ratio,
+        "cache_hit": warm < cold,  # warm run faster → cache was used
+    }
+
+
 def collect_classification_metrics(
     features: list[Any],
     modules: list[Any],
@@ -299,6 +393,23 @@ def print_summary(report: dict) -> None:
         print(f"  Graph-expanded:    {refresh['graph_expanded']}")
         print(f"  Total plan size:   {refresh['total_plan_size']}")
 
+    explain = report.get("explain", {})
+    if explain:
+        print("\n[Explain Quality]")
+        marker = _pass_marker(explain.get("pass"))
+        print(f"  {marker}  avg_score: {explain.get('avg_score')} (threshold >= 0.75)")
+        for t in explain.get("targets", []):
+            crit_ok = sum(t["criteria"].values())
+            print(f"    {t['target']}: {crit_ok}/4 criteria  (len={t['output_len']})")
+
+    cache = report.get("cache", {})
+    if cache:
+        print("\n[Cache Performance]")
+        hit = cache.get("cache_hit", False)
+        marker = _pass_marker(hit)
+        print(f"  {marker}  cold={cache['cold_seconds']:.2f}s  warm={cache['warm_seconds']:.2f}s  "
+              f"speedup={cache['speedup_ratio']}x")
+
     print("\n[Timing]")
     print(f"  Init:          {timing['init_seconds']:.2f}s")
     print(f"  Context packs: {timing['context_pack_seconds']:.2f}s")
@@ -397,14 +508,30 @@ def main() -> None:
     print("Collecting refresh plan metrics ...")
     refresh_metrics = collect_refresh_metrics(features, modules, repo_root)
 
+    # ── Step 5: Explain quality metrics ──────────────────────────────────────
+    print("Scoring explain quality ...")
+    agent_mem = repo_root / ".agent-memory"
+    explain_metrics = collect_explain_metrics(features, modules, agent_mem, repo_root)
+    print(f"  Explain avg_score: {explain_metrics['avg_score']:.2f}  "
+          f"({'PASS' if explain_metrics['pass'] else 'FAIL'})")
+
+    # ── Step 6: Cache timing ──────────────────────────────────────────────────
+    print("Measuring cache hit speedup ...")
+    cache_metrics = collect_cache_timing(repo_root)
+    print(f"  Cold: {cache_metrics['cold_seconds']:.2f}s  "
+          f"Warm: {cache_metrics['warm_seconds']:.2f}s  "
+          f"Speedup: {cache_metrics['speedup_ratio']}x")
+
     # ── Assemble report ───────────────────────────────────────────────────────
     report: dict[str, Any] = {
-        "version": 1,
+        "version": 2,
         "repo": str(repo_root),
         "timestamp": ts,
         "classification": cm,
         "context_packs": cp_results,
         "refresh": refresh_metrics,
+        "explain": explain_metrics,
+        "cache": cache_metrics,
         "timing": {
             "init_seconds": round(init_elapsed, 3),
             "context_pack_seconds": round(cp_elapsed, 3),
