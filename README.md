@@ -5,12 +5,12 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/repomind/"><img src="https://img.shields.io/pypi/v/repomind?style=flat-square&color=blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/repomind/"><img src="https://img.shields.io/pypi/dm/repomind?style=flat-square" alt="Downloads"></a>
   <a href="https://github.com/affanmomin/repomind/stargazers"><img src="https://img.shields.io/github/stars/affanmomin/repomind?style=flat-square" alt="Stars"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="MIT Licence"></a>
-  <a href="https://github.com/affanmomin/repomind/actions/workflows/ci.yml"><img src="https://github.com/affanmomin/repomind/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg?style=flat-square" alt="Python 3.10+"></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-compatible-green.svg?style=flat-square" alt="MCP"></a>
-  <a href="#"><img src="https://img.shields.io/badge/status-alpha-orange.svg?style=flat-square" alt="Alpha"></a>
 </p>
 
 <br>
@@ -147,21 +147,22 @@ Also runs automatically when you run `repomind update`. Only artifacts whose sou
 Two distinct layers. One is local-only. One is committed to Git.
 
 ```
-Graph engine (local, gitignored)     Repo memory (committed to Git)
-────────────────────────────────     ──────────────────────────────────────────
-.repomind/                  .agent-memory/
-  graph.db  ───────────────────────►   CLAUDE.md           ← session bootstrap
-  (SQLite)                              repo.md              ← one-page overview
-  14 languages                          architecture.md      ← module map
-  Tree-sitter AST                       features/<slug>.md   ← per feature
-  Call / import graphs                  modules/<slug>.md    ← per module
-  BFS impact analysis                   rules/conventions.md
-  Incremental SHA-256 updates           rules/safe-boundaries.md
-                                        overrides/global.yaml← human corrections
-                                        metadata/*.json      ← freshness, confidence
+Graph engine (local, gitignored)          Repo memory (committed to Git)
+─────────────────────────────────         ──────────────────────────────────────────
+.code-review-graph/               .agent-memory/
+  graph.db  ────────────────────────────►   CLAUDE.md           ← session bootstrap
+  (SQLite)                                   repo.md              ← one-page overview
+  14 languages                               architecture.md      ← module map
+  Tree-sitter AST                            features/<slug>.md   ← per feature
+  Call / import graphs                       modules/<slug>.md    ← per module
+  BFS impact analysis                        changes/hotspots.md  ← complexity hotspots
+  Incremental SHA-256 updates                rules/conventions.md
+                                             rules/safe-boundaries.md
+                                             overrides/global.yaml← human corrections
+                                             metadata/*.json      ← freshness, confidence
 ```
 
-**The graph is the engine.** Tree-sitter parses 14 languages into a SQLite graph of nodes (functions, classes, imports) and edges (calls, inheritance, TESTED_BY, IMPORTS_FROM). It lives in `.repomind/` — gitignored, never committed, rebuilt from source on any machine in seconds.
+**The graph is the engine.** Tree-sitter parses 14 languages into a SQLite graph of nodes (functions, classes, imports) and edges (calls, inheritance, TESTED_BY, IMPORTS_FROM). It lives in `.code-review-graph/` — gitignored, never committed, rebuilt from source on any machine in seconds.
 
 **Memory is the product.** The memory subsystem reads the graph as structural truth, classifies features and modules, and writes plain Markdown to `.agent-memory/`. These files are human-readable, diff-friendly, and committed to Git. Every teammate and every Claude session starts with full context automatically — no setup required after the first `memory init`.
 
@@ -177,7 +178,7 @@ Graph engine (local, gitignored)     Repo memory (committed to Git)
 | | Location | Committed to Git? |
 |---|---|---|
 | `.agent-memory/` artifacts | repo root | **Yes** — shared with the whole team |
-| `.repomind/graph.db` | repo root | **No** — local cache, rebuild any time |
+| `.code-review-graph/graph.db` | repo root | **No** — local cache, rebuild any time |
 | Embedding vectors | local | **No** |
 
 ---
@@ -361,7 +362,11 @@ See [`docs/`](docs/) for architecture, schema, and full command reference.
 
 ## Status
 
-**Alpha.** Memory classification is heuristic-based — no LLMs, just code structure. It works well on repos with domain-structured directories (`auth/`, `billing/`, `api/`, etc.). Known limitation: repos where all source files live in a single flat package (no feature subdirectories) will detect 0 features — only modules. Use `memory annotate` to add corrections and task hints. Bug reports and feedback welcome at [GitHub Issues](https://github.com/affanmomin/repomind/issues).
+**Available on PyPI.** `pip install repomind` — no other dependencies required for core functionality.
+
+Memory classification is heuristic-based — no LLMs, just code structure. Works well on repos with domain-structured directories (`auth/`, `billing/`, `api/`). For flat-package repos (all source in one directory), the classifier falls back to embedding-assisted grouping — install `repomind[embeddings]` for best results in that case.
+
+Bug reports and feedback welcome at [GitHub Issues](https://github.com/affanmomin/repomind/issues).
 
 ## Licence
 
