@@ -4,8 +4,9 @@
 
 ## Stack
 
-- **Languages**: c, cpp, csharp, go, java, kotlin, php, python, ruby, rust, solidity, swift, typescript, vue
-- **File counts**: python (65), typescript (19), c (1), cpp (1), csharp (1), go (1), java (1), kotlin (1), php (1), ruby (1), rust (1), solidity (1), swift (1), vue (1)
+- **Languages**: python, typescript
+- **File counts**: python (65), typescript (19)
+  _+ fixture-only: c, cpp, csharp, go, java, kotlin, php, ruby, rust, solidity, swift, vue_
 - **Config files**: .github, pyproject.toml
 
 ## Top-level structure
@@ -22,7 +23,7 @@
 
 ## Key locations
 
-- **Source**: `benchmarks/`, `code_review_graph/`
+- **Source**: `code_review_graph/`
 - **Tests**: `code-review-graph-vscode/test/`, `tests/`
 - **Docs**: `docs/`
 - **README**: `README.md`
@@ -31,6 +32,5 @@
 
 - `README.md` — project overview
 - `pyproject.toml` — dependencies and project metadata
-- `benchmarks/` — main source code
 - `code_review_graph/` — main source code
 - `code-review-graph-vscode/test/` — test suite

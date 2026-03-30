@@ -75,6 +75,14 @@
   ],
   "modules": [
     {
+      "confidence": 0.8,
+      "file_count": 9,
+      "name": "code_review_graph",
+      "slug": "code_review_graph",
+      "test_count": 6,
+      "type": "module"
+    },
+    {
       "confidence": 0.85,
       "file_count": 16,
       "name": "code_review_graph/memory",

@@ -59,22 +59,28 @@
       "feature:Cli"
     ],
     "code_review_graph/__main__.py": [
-      "feature:Cli"
+      "feature:Cli",
+      "module:code_review_graph"
     ],
     "code_review_graph/cli.py": [
-      "feature:Cli"
+      "feature:Cli",
+      "module:code_review_graph"
     ],
     "code_review_graph/embeddings.py": [
-      "feature:Search"
+      "feature:Search",
+      "module:code_review_graph"
     ],
     "code_review_graph/graph.py": [
-      "feature:Graph"
+      "feature:Graph",
+      "module:code_review_graph"
     ],
     "code_review_graph/incremental.py": [
-      "feature:Extension"
+      "feature:Extension",
+      "module:code_review_graph"
     ],
     "code_review_graph/main.py": [
-      "feature:Cli"
+      "feature:Cli",
+      "module:code_review_graph"
     ],
     "code_review_graph/memory/__init__.py": [
       "feature:Cli",
@@ -141,13 +147,16 @@
       "module:code_review_graph/memory"
     ],
     "code_review_graph/parser.py": [
-      "feature:Core"
+      "feature:Core",
+      "module:code_review_graph"
     ],
     "code_review_graph/tools.py": [
-      "feature:Core"
+      "feature:Core",
+      "module:code_review_graph"
     ],
     "code_review_graph/visualization.py": [
-      "feature:Core"
+      "feature:Core",
+      "module:code_review_graph"
     ]
   }
 }

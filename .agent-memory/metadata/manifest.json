@@ -7,20 +7,8 @@
     "docs"
   ],
   "discovered_languages": [
-    "c",
-    "cpp",
-    "csharp",
-    "go",
-    "java",
-    "kotlin",
-    "php",
     "python",
-    "ruby",
-    "rust",
-    "solidity",
-    "swift",
-    "typescript",
-    "vue"
+    "typescript"
   ],
   "discovered_test_dirs": [
     "code-review-graph-vscode/test",
@@ -94,6 +82,11 @@
       "relative_path": ".agent-memory/modules/code_review_graph-memory.md"
     },
     {
+      "artifact_id": "module:code_review_graph",
+      "artifact_type": "module",
+      "relative_path": ".agent-memory/modules/code_review_graph.md"
+    },
+    {
       "artifact_id": "repo",
       "artifact_type": "repo",
       "relative_path": ".agent-memory/repo.md"
@@ -109,11 +102,10 @@
       "relative_path": ".agent-memory/rules/safe-boundaries.md"
     }
   ],
-  "generated_at": "2026-03-30T11:23:32.472060+00:00",
+  "generated_at": "2026-03-30T19:05:45.099141+00:00",
   "repo_root": "/Users/apple/Desktop/graph",
   "scan_confidence": 1.0,
   "source_roots": [
-    "benchmarks",
     "code_review_graph"
   ],
   "version": "1"

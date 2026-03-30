@@ -4,16 +4,9 @@
 
 ## Language conventions
 
-- **go**: Return errors explicitly; never ignore them.
-- **go**: Keep package names short and lowercase.
-- **go**: Use `gofmt` formatting.
-- **java**: Follow Google Java Style Guide.
-- **java**: Prefer composition over inheritance.
 - **python**: Follow PEP 8 style (4-space indent, max 79–100 chars per line).
 - **python**: Use type annotations on all public functions.
 - **python**: Prefer `pathlib.Path` over `os.path` for file operations.
-- **rust**: Handle `Result` and `Option` explicitly — no `unwrap()` in production paths.
-- **rust**: Prefer owned types unless sharing is necessary.
 - **typescript**: Use strict TypeScript (`strict: true` in tsconfig).
 - **typescript**: Prefer `interface` over `type` for object shapes.
 - **typescript**: Avoid `any`; use `unknown` and narrow explicitly.
