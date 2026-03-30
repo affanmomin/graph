@@ -23,6 +23,7 @@
     "vue"
   ],
   "discovered_test_dirs": [
+    "code-review-graph-vscode/test",
     "tests"
   ],
   "framework_hints": [],
@@ -43,6 +44,11 @@
       "relative_path": ".agent-memory/changes/hotspots.md"
     },
     {
+      "artifact_id": "feature:blastradius",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/blastradius.md"
+    },
+    {
       "artifact_id": "feature:cache",
       "artifact_type": "feature",
       "relative_path": ".agent-memory/features/cache.md"
@@ -58,14 +64,29 @@
       "relative_path": ".agent-memory/features/core.md"
     },
     {
-      "artifact_id": "feature:models",
+      "artifact_id": "feature:cursorresolver",
       "artifact_type": "feature",
-      "relative_path": ".agent-memory/features/models.md"
+      "relative_path": ".agent-memory/features/cursorresolver.md"
+    },
+    {
+      "artifact_id": "feature:extension",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/extension.md"
+    },
+    {
+      "artifact_id": "feature:graph",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/graph.md"
     },
     {
       "artifact_id": "feature:search",
       "artifact_type": "feature",
       "relative_path": ".agent-memory/features/search.md"
+    },
+    {
+      "artifact_id": "feature:watcher",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/watcher.md"
     },
     {
       "artifact_id": "module:code_review_graph-memory",
@@ -88,8 +109,8 @@
       "relative_path": ".agent-memory/rules/safe-boundaries.md"
     }
   ],
-  "generated_at": "2026-03-26T20:29:28.977147+00:00",
-  "repo_root": "C:\\Users\\Lenovo\\graph",
+  "generated_at": "2026-03-30T11:23:32.472060+00:00",
+  "repo_root": "/Users/apple/Desktop/graph",
   "scan_confidence": 1.0,
   "source_roots": [
     "benchmarks",

@@ -7,7 +7,7 @@
 
 **Languages:** c, cpp, csharp, go, java, kotlin, php, python, ruby, rust, solidity, swift, typescript, vue
 **Source dirs:** benchmarks, code_review_graph
-**Test dirs:** tests
+**Test dirs:** code-review-graph-vscode/test, tests
 
 ## Top-level layout
 

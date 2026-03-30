@@ -120,6 +120,32 @@ def classify_modules(repo_root: Path, scan: RepoScan) -> list[ModuleMemory]:
     """
     candidates: dict[str, _ModuleCandidate] = {}
 
+    # Strategy 0 — root-level package files (files directly in the source package root,
+    # not in any sub-package).  This catches repos where the source package has both
+    # root-level engine files (e.g. parser.py, graph.py) AND a sub-package (e.g. memory/).
+    # Without this, root-level files get no module entry at all.
+    for src_dir in scan.source_dirs:
+        src_path = repo_root / src_dir
+        if not src_path.is_dir():
+            continue
+        if not (src_path / "__init__.py").exists():
+            continue
+        root_files = [
+            f for f in _source_files_under(repo_root, src_path)
+            if Path(f).parent == Path(src_dir)
+            and Path(f).name != "__init__.py"   # package marker, not a real module file
+        ]
+        if root_files:
+            key = src_dir
+            if key not in candidates:
+                candidates[key] = _ModuleCandidate(
+                    name=src_dir,
+                    directory=src_dir,
+                    files=root_files,
+                    confidence=0.85,
+                    rationale="root-level package files (not in any subpackage)",
+                )
+
     # Strategy 1 — sub-packages inside known source dirs
     for src_dir in scan.source_dirs:
         src_path = repo_root / src_dir

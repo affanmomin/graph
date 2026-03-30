@@ -6,42 +6,17 @@
 
 ## Purpose
 
-Implements the **Core** product area (39 file(s) detected; classified by weak heuristic (low confidence)).
+Implements the **Core** product area (4 file(s) detected; classified by weak heuristic (low confidence)).
 
 ## Main files
 
-- `benchmarks/run_benchmark.py`
-- `code-review-graph-vscode/src/backend/sqlite.ts`
-- `code-review-graph-vscode/src/backend/watcher.ts`
-- `code-review-graph-vscode/src/extension.ts`
-- `code-review-graph-vscode/src/features/blastRadius.ts`
-- `code-review-graph-vscode/src/features/cursorResolver.ts`
-- `code-review-graph-vscode/src/features/navigation.ts`
-- `code-review-graph-vscode/src/features/reviewAssistant.ts`
-- `code-review-graph-vscode/src/features/scmDecorations.ts`
-- `code-review-graph-vscode/src/onboarding/installer.ts`
-- `code-review-graph-vscode/src/onboarding/welcome.ts`
-- `code-review-graph-vscode/src/views/graphWebview.ts`
-- `code-review-graph-vscode/src/views/statusBar.ts`
-- `code-review-graph-vscode/src/views/treeItems.ts`
-- `code-review-graph-vscode/src/views/treeView.ts`
-- `code-review-graph-vscode/src/webview/graph.ts`
-- `code_review_graph/__init__.py`
-- `code_review_graph/__main__.py`
-- `code_review_graph/embeddings.py`
-- `code_review_graph/graph.py`
-- _…and 19 more_
-
-## Likely entry points
-
-- `code_review_graph/main.py`
+- `code_review_graph/memory/writer.py`
+- `code_review_graph/parser.py`
+- `code_review_graph/tools.py`
+- `code_review_graph/visualization.py`
 
 ## Related tests
 
-- `tests/__init__.py`
-- `tests/test_embeddings.py`
-- `tests/test_graph.py`
-- `tests/test_incremental.py`
 - `tests/test_memory_changed_graph.py`
 - `tests/test_memory_classifier.py`
 - `tests/test_memory_classifier_graph.py`
@@ -58,9 +33,12 @@ Implements the **Core** product area (39 file(s) detected; classified by weak he
 - `tests/test_memory_lookup.py`
 - `tests/test_memory_lookup_semantic.py`
 - `tests/test_memory_overrides.py`
-- _…and 12 more_
+- `tests/test_memory_phase4_graph_leverage.py`
+- `tests/test_memory_phase5_perf_ux.py`
+- `tests/test_memory_quality_verdict.py`
+- `tests/test_memory_refresh.py`
+- _…and 8 more_
 
 ## Warnings and notes
 
 - Low confidence (30%): grouping is inferred from directory structure only — verify file membership manually.
-- Large feature: 39 files total (only first 20 shown above). Consider splitting into sub-features.

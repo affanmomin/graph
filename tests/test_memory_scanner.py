@@ -524,3 +524,156 @@ class TestMemoryInitCLI:
         )
         assert "tests" in manifest["discovered_test_dirs"]
         assert "docs" in manifest["discovered_docs_dirs"]
+
+
+# ---------------------------------------------------------------------------
+# Scanner — Ticket A1: Tooling dir detection
+# ---------------------------------------------------------------------------
+
+
+class TestToolingDirs:
+    def test_benchmarks_classified_as_tooling(self, tmp_path):
+        make_repo(tmp_path, {
+            "code_review_graph/__init__.py": "",
+            "code_review_graph/main.py": "x = 1",
+            "benchmarks/bench.py": "# bench",
+        })
+        scan = scan_repo(tmp_path)
+        assert "benchmarks" in scan.tooling_dirs
+        assert "benchmarks" not in scan.source_dirs
+
+    def test_evaluate_classified_as_tooling(self, tmp_path):
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "evaluate/run.py": "# eval",
+        })
+        scan = scan_repo(tmp_path)
+        assert "evaluate" in scan.tooling_dirs
+        assert "evaluate" not in scan.source_dirs
+
+    def test_scripts_classified_as_tooling(self, tmp_path):
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "scripts/deploy.py": "# deploy",
+        })
+        scan = scan_repo(tmp_path)
+        assert "scripts" in scan.tooling_dirs
+
+    def test_non_tooling_dir_not_in_tooling_dirs(self, tmp_path):
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "tests/test_main.py": "x = 1",
+        })
+        scan = scan_repo(tmp_path)
+        assert "tests" not in scan.tooling_dirs
+        assert "src" not in scan.tooling_dirs
+
+
+# ---------------------------------------------------------------------------
+# Scanner — Ticket A2: Fixture language filtering
+# ---------------------------------------------------------------------------
+
+
+class TestFixtureLanguages:
+    def test_java_in_tests_fixtures_is_fixture_lang(self, tmp_path):
+        """A single .java file under tests/fixtures/ should NOT appear in scan.languages."""
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "tests/fixtures/Sample.java": "class Sample {}",
+        })
+        scan = scan_repo(tmp_path)
+        assert "java" not in scan.languages
+        assert "java" in scan.fixture_languages
+        assert "python" in scan.languages
+
+    def test_real_java_not_fixture(self, tmp_path):
+        """Java files outside test dirs should be real project languages."""
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "lib/App.java": "class App {}",
+            "lib/Other.java": "class Other {}",
+        })
+        scan = scan_repo(tmp_path)
+        assert "java" in scan.languages
+        assert "java" not in scan.fixture_languages
+
+    def test_multiple_fixture_langs(self, tmp_path):
+        """Multiple fixture-only langs all end up in fixture_languages."""
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "tests/fixtures/Sample.java": "class Sample {}",
+            "tests/fixtures/sample.c": "int main() {}",
+            "tests/fixtures/Sample.swift": "class S {}",
+        })
+        scan = scan_repo(tmp_path)
+        for lang in ("java", "c", "swift"):
+            assert lang not in scan.languages, f"{lang} should be fixture-only"
+            assert lang in scan.fixture_languages
+        assert "python" in scan.languages
+
+    def test_empty_fixture_languages_when_no_fixtures(self, tmp_path):
+        make_repo(tmp_path, {"src/main.py": "x = 1", "src/utils.py": "x = 2"})
+        scan = scan_repo(tmp_path)
+        assert scan.fixture_languages == []
+
+
+# ---------------------------------------------------------------------------
+# Scanner — Ticket C2: CLI scripts parsing
+# ---------------------------------------------------------------------------
+
+
+class TestCliScripts:
+    def test_parses_project_scripts(self, tmp_path):
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "pyproject.toml": (
+                "[project]\nname = \"foo\"\n\n"
+                "[project.scripts]\nrepomind = \"code_review_graph.cli:main\"\n"
+                "repomind-serve = \"code_review_graph.main:serve\"\n"
+            ),
+        })
+        scan = scan_repo(tmp_path)
+        assert "repomind" in scan.cli_scripts
+        assert "repomind-serve" in scan.cli_scripts
+
+    def test_no_scripts_gives_empty_dict(self, tmp_path):
+        make_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "pyproject.toml": "[project]\nname = \"foo\"\n",
+        })
+        scan = scan_repo(tmp_path)
+        assert scan.cli_scripts == {}
+
+    def test_no_pyproject_gives_empty_dict(self, tmp_path):
+        make_repo(tmp_path, {"src/main.py": "x = 1"})
+        scan = scan_repo(tmp_path)
+        assert scan.cli_scripts == {}
+
+
+# ---------------------------------------------------------------------------
+# Scanner — Ticket C3: README excerpt
+# ---------------------------------------------------------------------------
+
+
+class TestReadmeExcerpt:
+    def test_extracts_first_prose_line(self, tmp_path):
+        make_repo(tmp_path, {
+            "README.md": (
+                "# My Project\n\n"
+                "![Build](https://img.shields.io/badge/build-passing)\n\n"
+                "A tool for doing awesome things with code.\n"
+            ),
+        })
+        scan = scan_repo(tmp_path)
+        assert scan.readme_excerpt == "A tool for doing awesome things with code."
+
+    def test_excerpt_capped_at_200_chars(self, tmp_path):
+        long_line = "A " + "word " * 50
+        make_repo(tmp_path, {"README.md": f"# Title\n\n{long_line}\n"})
+        scan = scan_repo(tmp_path)
+        assert len(scan.readme_excerpt) <= 200
+
+    def test_no_readme_gives_empty_excerpt(self, tmp_path):
+        make_repo(tmp_path, {"src/main.py": "x = 1"})
+        scan = scan_repo(tmp_path)
+        assert scan.readme_excerpt == ""

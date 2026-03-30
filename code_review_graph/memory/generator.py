@@ -33,6 +33,7 @@ from .writer import render_markdown_section
 
 if TYPE_CHECKING:
     from .graph_bridge import (
+        ArchitectureGraphSignals,
         CallGraphSignals,
         FileNodeSummary,
         HotspotNode,
@@ -119,11 +120,18 @@ _ARCH_PREAMBLE = (
 )
 
 
-def generate_architecture_doc(scan: RepoScan) -> str:
+def generate_architecture_doc(
+    scan: RepoScan,
+    graph_signals: "ArchitectureGraphSignals | None" = None,
+) -> str:
     """Generate content for ``.agent-memory/architecture.md``.
 
     Args:
-        scan: A populated :class:`~scanner.RepoScan`.
+        scan:          A populated :class:`~scanner.RepoScan`.
+        graph_signals: Optional graph-backed signals from
+                       :func:`~graph_bridge.get_architecture_graph_signals`.
+                       When provided the "Inspect first" section uses real
+                       graph-grounded file suggestions instead of directory guesses.
 
     Returns:
         Markdown string suitable for writing directly to ``architecture.md``.
@@ -154,10 +162,10 @@ def generate_architecture_doc(scan: RepoScan) -> str:
             coupling,
         ))
 
-    # Inspect first
+    # Inspect first — graph-grounded when signals available
     sections.append(render_markdown_section(
         "Inspect first",
-        _render_inspect_first(scan),
+        _render_inspect_first(scan, graph_signals=graph_signals),
     ))
 
     return "\n\n".join(sections)
@@ -180,10 +188,16 @@ def _render_stack(scan: RepoScan) -> str:
         lines.append(f"- **Frameworks**: {', '.join(scan.framework_hints)}")
 
     if scan.file_counts:
+        fixture_set = set(getattr(scan, "fixture_languages", []))
         counts_str = ", ".join(
-            f"{lang} ({n})" for lang, n in sorted(scan.file_counts.items(), key=lambda x: -x[1])
+            f"{lang} ({n})"
+            for lang, n in sorted(scan.file_counts.items(), key=lambda x: -x[1])
+            if lang not in fixture_set
         )
-        lines.append(f"- **File counts**: {counts_str}")
+        if counts_str:
+            lines.append(f"- **File counts**: {counts_str}")
+        if fixture_set:
+            lines.append(f"  _+ fixture-only: {', '.join(sorted(fixture_set))}_")
 
     if scan.config_files:
         lines.append(f"- **Config files**: {', '.join(sorted(scan.config_files))}")
@@ -273,6 +287,11 @@ def _render_boundaries(scan: RepoScan) -> str:
         for d in scan.docs_dirs:
             boundaries.append(f"- **`{d}/`** — documentation")
 
+    tooling_dirs = getattr(scan, "tooling_dirs", [])
+    if tooling_dirs:
+        for d in tooling_dirs:
+            boundaries.append(f"- **`{d}/`** — tooling / scripts")
+
     # Monorepo signal: multiple conventional dirs
     apps_dirs = [d for d in scan.top_level_dirs if d.lower() in ("apps", "packages", "services")]
     if apps_dirs:
@@ -345,12 +364,25 @@ def _render_coupling_notes(scan: RepoScan) -> str:
     return "\n".join(f"- {n}" for n in notes) if notes else ""
 
 
-def _render_inspect_first(scan: RepoScan) -> str:
-    """Files/dirs worth looking at first when starting a task."""
+def _render_inspect_first(
+    scan: RepoScan,
+    graph_signals: "ArchitectureGraphSignals | None" = None,
+) -> str:
+    """Files/dirs worth looking at first when starting a task.
+
+    When *graph_signals* are provided, uses real graph-derived entry-point
+    files instead of directory-name guesses.
+    """
     items: list[str] = []
 
-    for d in scan.source_dirs[:3]:
-        items.append(f"`{d}/` — main source code")
+    if graph_signals and graph_signals.key_files:
+        # Graph-grounded: list actual high-signal files
+        for fp, desc in graph_signals.key_files[:5]:
+            items.append(f"`{fp}` — {desc}")
+    else:
+        # Heuristic fallback: source dirs
+        for d in scan.source_dirs[:3]:
+            items.append(f"`{d}/` — main source code")
 
     for cfg in ("pyproject.toml", "package.json", "go.mod", "Cargo.toml"):
         if cfg in scan.config_files:
@@ -1328,6 +1360,11 @@ def generate_claude_memory_doc(scan: RepoScan, overrides: "Overrides | None" = N
         "> Add domain corrections in `.agent-memory/overrides/`."
     )
 
+    # Purpose — first meaningful sentence from README
+    readme_excerpt = getattr(scan, "readme_excerpt", "")
+    if readme_excerpt:
+        sections.append(render_markdown_section("Purpose", readme_excerpt))
+
     # Stack
     stack_parts: list[str] = []
     if scan.languages:
@@ -1352,6 +1389,7 @@ def generate_claude_memory_doc(scan: RepoScan, overrides: "Overrides | None" = N
         sections.append(render_markdown_section("Team notes", notes_body))
 
     # Key conventions — compact: max 2 rules per language, 1 per framework
+    # scan.languages already excludes fixture-only languages after Ticket A2.
     conv_lines: list[str] = []
     for lang in sorted(scan.languages):
         for rule in _LANG_CONVENTIONS.get(lang, [])[:2]:
@@ -1361,6 +1399,11 @@ def generate_claude_memory_doc(scan: RepoScan, overrides: "Overrides | None" = N
             conv_lines.append(f"- **{fw}**: {rule}")
     if conv_lines:
         sections.append(render_markdown_section("Key conventions", "\n".join(conv_lines)))
+
+    # Entry points — from pyproject.toml [project.scripts] or cli.py fallback
+    entry_points_body = _render_claude_entry_points(scan)
+    if entry_points_body:
+        sections.append(render_markdown_section("Entry points", entry_points_body))
 
     # Never-edit paths
     never_edit: list[str] = []
@@ -1383,3 +1426,31 @@ def generate_claude_memory_doc(scan: RepoScan, overrides: "Overrides | None" = N
         sections.append(render_markdown_section("Task hints", hint_lines))
 
     return "\n\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
+# CLAUDE.md helpers
+# ---------------------------------------------------------------------------
+
+
+def _render_claude_entry_points(scan: RepoScan) -> str:
+    """Render the Entry points section for CLAUDE.md.
+
+    Priority:
+    1. ``[project.scripts]`` entries from ``pyproject.toml`` (most accurate).
+    2. Presence of ``cli.py`` in a source dir (generic fallback).
+    """
+    cli_scripts: dict[str, str] = getattr(scan, "cli_scripts", {})
+    lines: list[str] = []
+
+    if cli_scripts:
+        cmds = ", ".join(f"`{k}`" for k in sorted(cli_scripts.keys()))
+        lines.append(f"**CLI commands:** {cmds}")
+    else:
+        # Fallback: check for cli.py in any source dir
+        for src_dir in scan.source_dirs:
+            if (scan.repo_root / src_dir / "cli.py").exists():
+                lines.append(f"**CLI:** see `{src_dir}/cli.py`")
+                break
+
+    return "\n".join(lines) if lines else ""

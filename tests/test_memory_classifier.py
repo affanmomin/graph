@@ -482,3 +482,73 @@ class TestModelContracts:
         for f in result:
             slug = f.slug()
             assert "/" not in slug
+
+
+# ---------------------------------------------------------------------------
+# Module classification — Ticket B: Strategy 0 (root-level package files)
+# ---------------------------------------------------------------------------
+
+
+class TestModulesStrategy0:
+    def test_root_package_files_get_own_module(self, tmp_path):
+        """A package with both root-level files and a sub-package produces 2 modules."""
+        repo = make_repo(tmp_path, {
+            "mypkg/__init__.py": "",
+            "mypkg/parser.py": "def parse(): pass",
+            "mypkg/graph.py": "def build(): pass",
+            "mypkg/cli.py": "def main(): pass",
+            "mypkg/memory/__init__.py": "",
+            "mypkg/memory/scanner.py": "def scan(): pass",
+            "mypkg/memory/generator.py": "def generate(): pass",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        names = [m.name for m in modules]
+        # Strategy 0 should produce "mypkg" for root files
+        assert "mypkg" in names, f"Expected 'mypkg' in {names}"
+        # Strategy 1 should produce "mypkg/memory" for sub-package
+        assert "mypkg/memory" in names, f"Expected 'mypkg/memory' in {names}"
+
+    def test_root_module_files_do_not_include_subpackage_files(self, tmp_path):
+        """Root module should not contain files from the sub-package."""
+        repo = make_repo(tmp_path, {
+            "mypkg/__init__.py": "",
+            "mypkg/parser.py": "def parse(): pass",
+            "mypkg/graph.py": "def build(): pass",
+            "mypkg/memory/__init__.py": "",
+            "mypkg/memory/scanner.py": "def scan(): pass",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        root_mod = next((m for m in modules if m.name == "mypkg"), None)
+        assert root_mod is not None
+        # Root module should only contain root-level files
+        for f in root_mod.files:
+            assert "memory/" not in f, f"Subpackage file leaked into root module: {f}"
+
+    def test_no_init_py_does_not_create_root_module(self, tmp_path):
+        """Strategy 0 requires __init__.py — a plain directory should not get a root module."""
+        repo = make_repo(tmp_path, {
+            "mypkg/parser.py": "def parse(): pass",
+            "mypkg/graph.py": "def build(): pass",
+            "mypkg/memory/__init__.py": "",
+            "mypkg/memory/scanner.py": "def scan(): pass",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        # Without __init__.py on mypkg, Strategy 0 should not fire for it
+        names = [m.name for m in modules]
+        assert "mypkg" not in names, f"Strategy 0 should not fire without __init__.py; got {names}"
+
+    def test_package_with_only_subpackages_no_root_module(self, tmp_path):
+        """A package with NO root-level source files should not produce a root module via S0."""
+        repo = make_repo(tmp_path, {
+            "mypkg/__init__.py": "",
+            "mypkg/memory/__init__.py": "",
+            "mypkg/memory/scanner.py": "def scan(): pass",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        names = [m.name for m in modules]
+        # No root-level source files in mypkg → no "mypkg" module from S0
+        assert "mypkg" not in names, f"S0 should not emit root mod with no root files; got {names}"

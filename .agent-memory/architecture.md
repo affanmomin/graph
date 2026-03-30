@@ -6,6 +6,7 @@
 
 - **`benchmarks/`** — production source code
 - **`code_review_graph/`** — production source code
+- **`code-review-graph-vscode/test/`** — test suite (separate from production code)
 - **`tests/`** — test suite (separate from production code)
 - **`docs/`** — documentation
 
@@ -23,4 +24,4 @@
 - `code_review_graph/` — main source code
 - `pyproject.toml` — project metadata and dependencies
 - `README.md` — project intent and setup
-- `tests/` — to understand expected behaviour
+- `code-review-graph-vscode/test/` — to understand expected behaviour

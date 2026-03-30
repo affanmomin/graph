@@ -1215,3 +1215,99 @@ def get_all_structural_depth_signals(
     except Exception as exc:
         logger.debug("get_all_structural_depth_signals: failed: %s", exc)
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Architecture graph signals  (Ticket D)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ArchitectureGraphSignals:
+    """Graph-derived signals for ``architecture.md`` "Inspect first" section.
+
+    Attributes:
+        key_files: List of ``(file_path, description)`` tuples for the most
+                   structurally important files in the repo.  Files are ranked
+                   by fan-in (number of other files that import or call them).
+    """
+
+    key_files: list[tuple[str, str]] = field(default_factory=list)
+
+
+def get_architecture_graph_signals(
+    repo_root: str | Path,
+    max_files: int = 5,
+) -> "ArchitectureGraphSignals | None":
+    """Return key files from the graph for ``architecture.md`` "Inspect first".
+
+    Finds the top *max_files* non-test source files by fan-in count (number of
+    unique files that CALLS or IMPORTS_FROM them).  These are the structural
+    entry points and shared utilities most worth understanding first.
+
+    Returns ``None`` when the graph is unavailable or empty so callers always
+    fall back gracefully to heuristic-only behaviour.
+
+    Args:
+        repo_root: Absolute path to the repo root.
+        max_files: Maximum number of key files to return (default 5).
+
+    Returns:
+        :class:`ArchitectureGraphSignals` with populated ``key_files``, or
+        ``None`` on any error.
+    """
+    p = _db_path(Path(repo_root))
+    if not p.exists():
+        return None
+    try:
+        from ..graph import GraphStore
+        with GraphStore(p) as gs:
+            stats = gs.get_stats()
+            if stats.total_nodes == 0:
+                return None
+
+            # Collect fan-in counts: for each file, how many other files call/import it?
+            fan_in: dict[str, set[str]] = {}  # target_file -> set of source files
+
+            # Iterate over all File nodes to find the universe of files
+            # We'll use get_nodes_by_file on each known file — but we don't have
+            # a "list all files" method.  Instead, query by file via impact_radius
+            # on nothing, or use the edges approach.
+            # Use search_nodes to find all File nodes (kind="File")
+            file_nodes = gs.search_nodes("", kind="File", limit=2000)
+            all_files = [n.file_path for n in file_nodes if n.file_path and not _is_test_file(n.file_path)]
+
+            # For each file, get incoming edges (CALLS, IMPORTS_FROM)
+            _INCOMING_KINDS = frozenset({"CALLS", "IMPORTS_FROM"})
+            for fp in all_files:
+                nodes = gs.get_nodes_by_file(fp)
+                for node in nodes:
+                    if node.kind not in ("Function", "Class", "Method", "File"):
+                        continue
+                    incoming = gs.get_edges_by_target(node.qualified_name)
+                    for edge in incoming:
+                        if edge.kind not in _INCOMING_KINDS:
+                            continue
+                        src_file = _file_from_qualified(edge.source_qualified_name)
+                        if src_file and src_file != fp and not _is_test_file(src_file):
+                            if fp not in fan_in:
+                                fan_in[fp] = set()
+                            fan_in[fp].add(src_file)
+
+            if not fan_in:
+                return None
+
+            # Sort by fan-in count descending, take top max_files
+            ranked = sorted(fan_in.items(), key=lambda x: -len(x[1]))[:max_files]
+
+            key_files: list[tuple[str, str]] = []
+            for fp, importers in ranked:
+                count = len(importers)
+                desc = f"high fan-in — imported/called by {count} other file(s)"
+                key_files.append((fp, desc))
+
+            return ArchitectureGraphSignals(key_files=key_files)
+
+    except Exception as exc:
+        logger.debug("get_architecture_graph_signals: failed: %s", exc)
+        return None

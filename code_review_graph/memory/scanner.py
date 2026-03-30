@@ -77,6 +77,13 @@ _SRC_DIR_NAMES: frozenset[str] = frozenset({
     "core", "internal", "cmd", "pkg",
 })
 
+# Names that indicate tooling / benchmark / evaluation directories — not production source.
+# These should be labelled separately in architecture.md rather than listed as source dirs.
+_TOOLING_DIR_NAMES: frozenset[str] = frozenset({
+    "benchmarks", "benchmark", "perf", "evaluate", "evaluation",
+    "scripts", "tools", "hack", "vendor", "third_party",
+})
+
 # Test file stem indicators — shared with classifier and flat_rescue
 _TEST_PREFIXES: tuple[str, ...] = ("test_", "spec_")
 _TEST_SUFFIXES: tuple[str, ...] = ("_test", "_spec", ".test", ".spec")
@@ -172,11 +179,15 @@ class RepoScan:
     source_dirs: list[str] = field(default_factory=list)
     test_dirs: list[str] = field(default_factory=list)
     docs_dirs: list[str] = field(default_factory=list)
+    tooling_dirs: list[str] = field(default_factory=list)
     config_files: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
+    fixture_languages: list[str] = field(default_factory=list)
     framework_hints: list[str] = field(default_factory=list)
     file_counts: dict[str, int] = field(default_factory=dict)
     readme_path: str = ""
+    readme_excerpt: str = ""
+    cli_scripts: dict[str, str] = field(default_factory=dict)
     confidence: float = 1.0
     notes: list[str] = field(default_factory=list)
     repo_shape: str = "unknown"          # "structured" | "mixed" | "flat-package" | "unknown"
@@ -206,10 +217,10 @@ def scan_repo(repo_root: Path) -> RepoScan:
         scan.notes.append(f"repo_root does not exist or is not a directory: {repo_root}")
         return scan
 
-    # --- Top-level dirs and README ---
+    # --- Top-level dirs, README, and README excerpt ---
     _collect_top_level(repo_root, scan)
 
-    # --- Config files and framework hints ---
+    # --- Config files, framework hints, and CLI scripts ---
     _collect_config_files(repo_root, scan)
 
     # --- Language and file counts via filesystem walk ---
@@ -233,13 +244,14 @@ def scan_repo(repo_root: Path) -> RepoScan:
 
 
 def _collect_top_level(repo_root: Path, scan: RepoScan) -> None:
-    """Populate top_level_dirs and readme_path."""
+    """Populate top_level_dirs, readme_path, and readme_excerpt."""
     dirs: list[str] = []
     for entry in sorted(repo_root.iterdir()):
         if entry.is_dir() and entry.name not in _SKIP_DIRS and not entry.name.startswith("."):
             dirs.append(entry.name)
         if entry.is_file() and entry.name.lower() in ("readme.md", "readme.rst", "readme.txt", "readme"):
             scan.readme_path = entry.name
+            scan.readme_excerpt = _extract_readme_excerpt(entry)
     scan.top_level_dirs = dirs
 
 
@@ -265,6 +277,7 @@ def _collect_config_files(repo_root: Path, scan: RepoScan) -> None:
     pyproject = repo_root / "pyproject.toml"
     if pyproject.exists():
         hints.update(_hints_from_pyproject(pyproject))
+        scan.cli_scripts = _parse_cli_scripts(pyproject)
 
     # Also scan one level deep (all top-level dirs) for framework signals.
     # This finds Express/Next.js when package.json lives in BE/ or FE/ subdirs
@@ -288,25 +301,51 @@ def _collect_config_files(repo_root: Path, scan: RepoScan) -> None:
 
 
 def _collect_languages(repo_root: Path, scan: RepoScan) -> None:
-    """Walk the repo and count source files per language."""
+    """Walk the repo and count source files per language.
+
+    Separates real project languages from fixture-only languages.
+    A language is "fixture-only" when ALL its files live inside test directories
+    (e.g. ``tests/fixtures/Sample.java``).  Fixture languages are stored in
+    ``scan.fixture_languages`` and excluded from ``scan.languages`` to prevent
+    test assets from inflating the detected tech stack.
+    """
     counts: dict[str, int] = {}
+    test_counts: dict[str, int] = {}
 
     for path in _walk_source_files(repo_root):
         lang = _EXT_TO_LANG.get(path.suffix.lower())
         if lang:
             counts[lang] = counts.get(lang, 0) + 1
+            # Track files that live inside a test directory
+            try:
+                parts = path.relative_to(repo_root).parts
+                if any(p.lower() in _TEST_DIR_NAMES for p in parts[:-1]):
+                    test_counts[lang] = test_counts.get(lang, 0) + 1
+            except ValueError:
+                pass
+
+    # A language is fixture-only when every file of that language is in a test dir.
+    real_langs: list[str] = []
+    fixture_langs: list[str] = []
+    for lang, total in counts.items():
+        if test_counts.get(lang, 0) == total:
+            fixture_langs.append(lang)
+        else:
+            real_langs.append(lang)
 
     scan.file_counts = dict(sorted(counts.items()))
-    scan.languages = sorted(counts.keys())
+    scan.languages = sorted(real_langs)
+    scan.fixture_languages = sorted(fixture_langs)
 
 
 def _classify_dirs(repo_root: Path, scan: RepoScan) -> None:
-    """Populate source_dirs, test_dirs, docs_dirs from top-level + one level deep."""
+    """Populate source_dirs, test_dirs, docs_dirs, tooling_dirs from top-level + one level deep."""
     src: list[str] = []
     tests: list[str] = []
     docs: list[str] = []
+    tooling: list[str] = []
 
-    # Check top-level dirs
+    # Check top-level dirs — classify by name first
     for name in scan.top_level_dirs:
         lower = name.lower()
         if lower in _TEST_DIR_NAMES:
@@ -315,10 +354,13 @@ def _classify_dirs(repo_root: Path, scan: RepoScan) -> None:
             docs.append(name)
         elif lower in _SRC_DIR_NAMES:
             src.append(name)
+        elif lower in _TOOLING_DIR_NAMES:
+            tooling.append(name)
 
     # If no src dir was found at top level, treat the package/module dirs as source
-    # but exclude dirs already classified as tests or docs
-    already_classified = set(tests) | set(docs)
+    # but exclude dirs already classified as tests, docs, or tooling
+    tooling_set = set(tooling)
+    already_classified = set(tests) | set(docs) | tooling_set
     if not src:
         for name in scan.top_level_dirs:
             if name in already_classified:
@@ -382,6 +424,7 @@ def _classify_dirs(repo_root: Path, scan: RepoScan) -> None:
     scan.source_dirs = sorted(src)
     scan.test_dirs = sorted(tests)
     scan.docs_dirs = sorted(docs)
+    scan.tooling_dirs = sorted(tooling)
 
 
 def _detect_shape(repo_root: Path, scan: RepoScan) -> None:
@@ -477,6 +520,63 @@ def _has_test_config(directory: Path) -> bool:
         if (directory / fname).exists():
             return True
     return False
+
+
+def _extract_readme_excerpt(readme_path: Path) -> str:
+    """Extract the first meaningful paragraph from a README file (up to 200 chars).
+
+    Skips headings, badge lines, blockquotes, and HTML fragments so the result
+    is a clean prose sentence describing the project.
+    """
+    try:
+        text = readme_path.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("#"):
+                continue
+            if "![" in stripped or "shields.io" in stripped or "badge" in stripped.lower():
+                continue
+            if stripped.startswith(">") or stripped.startswith("|") or stripped.startswith("<"):
+                continue
+            # Skip lines that are mostly punctuation / separators
+            alnum = sum(1 for c in stripped if c.isalnum())
+            if alnum < 10:
+                continue
+            return stripped[:200]
+    except Exception:
+        pass
+    return ""
+
+
+def _parse_cli_scripts(path: Path) -> dict[str, str]:
+    """Parse ``[project.scripts]`` entries from a ``pyproject.toml`` file.
+
+    Uses a simple line-by-line parser to avoid requiring ``tomllib`` / ``tomli``
+    as a hard dependency (available in stdlib only on Python 3.11+).
+    """
+    scripts: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        in_scripts = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped == "[project.scripts]":
+                in_scripts = True
+                continue
+            # New TOML section header — stop parsing scripts
+            if stripped.startswith("[") and stripped.endswith("]") and in_scripts:
+                break
+            if in_scripts and "=" in stripped and not stripped.startswith("#"):
+                parts = stripped.split("=", 1)
+                key = parts[0].strip().strip('"').strip("'")
+                val = parts[1].strip().strip('"').strip("'")
+                if key:
+                    scripts[key] = val
+    except Exception:
+        pass
+    return scripts
 
 
 def _hints_from_package_json(path: Path) -> list[str]:

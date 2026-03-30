@@ -20,6 +20,6 @@
 
 ## Inferred project patterns
 
-- Tests live in `tests/`. Always add tests for new behaviour.
+- Tests live in `code-review-graph-vscode/test`, `tests/`. Always add tests for new behaviour.
 - Documentation lives in `docs/`. Update docs when adding public APIs.
 - Dependencies are managed via `pyproject.toml`. Use `uv` or `pip` to update them — never edit the lock file manually.

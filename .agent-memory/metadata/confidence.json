@@ -1,42 +1,74 @@
 {
   "features": [
     {
-      "confidence": 0.5,
-      "file_count": 1,
+      "confidence": 0.4,
+      "file_count": 2,
+      "name": "Blastradius",
+      "slug": "blastradius",
+      "test_count": 25,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.4,
+      "file_count": 2,
       "name": "Cache",
       "slug": "cache",
       "test_count": 25,
       "type": "feature"
     },
     {
-      "confidence": 0.35,
-      "file_count": 2,
+      "confidence": 0.4,
+      "file_count": 8,
       "name": "Cli",
       "slug": "cli",
-      "test_count": 0,
+      "test_count": 26,
       "type": "feature"
     },
     {
       "confidence": 0.3,
-      "file_count": 39,
+      "file_count": 4,
       "name": "Core",
       "slug": "core",
-      "test_count": 32,
+      "test_count": 28,
       "type": "feature"
     },
     {
       "confidence": 0.4,
-      "file_count": 1,
-      "name": "Models",
-      "slug": "models",
-      "test_count": 25,
+      "file_count": 2,
+      "name": "Cursorresolver",
+      "slug": "cursorresolver",
+      "test_count": 0,
       "type": "feature"
     },
     {
-      "confidence": 0.5,
-      "file_count": 1,
+      "confidence": 0.4,
+      "file_count": 5,
+      "name": "Extension",
+      "slug": "extension",
+      "test_count": 26,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.4,
+      "file_count": 7,
+      "name": "Graph",
+      "slug": "graph",
+      "test_count": 27,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.4,
+      "file_count": 11,
       "name": "Search",
       "slug": "search",
+      "test_count": 26,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.4,
+      "file_count": 3,
+      "name": "Watcher",
+      "slug": "watcher",
       "test_count": 0,
       "type": "feature"
     }

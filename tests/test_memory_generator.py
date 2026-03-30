@@ -668,3 +668,154 @@ class TestVocabularyInGeneratedDocs:
         assert "Responsibilities" in doc
         # Should show payment/billing domain, not just stem heuristic
         assert "payment" in doc.lower() or "billing" in doc.lower()
+
+
+# ---------------------------------------------------------------------------
+# Generator — Ticket A1+A2: Tooling dirs and fixture languages in architecture.md
+# ---------------------------------------------------------------------------
+
+
+from code_review_graph.memory.scanner import scan_repo
+
+
+def make_scan_repo(tmp_path: Path, files: dict[str, str]):
+    """Create a fake repo and return a RepoScan."""
+    for rel, content in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    return scan_repo(tmp_path)
+
+
+class TestArchitectureDocToolingDirs:
+    def test_benchmarks_shows_as_tooling_not_source(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {
+            "code_review_graph/__init__.py": "",
+            "code_review_graph/main.py": "x = 1",
+            "benchmarks/bench.py": "# bench",
+        })
+        doc = generate_architecture_doc(scan)
+        assert "tooling" in doc.lower()
+        assert "benchmarks" in doc
+        # benchmarks should NOT be labelled as production source code
+        assert "benchmarks/` — production source" not in doc
+
+    def test_evaluate_shows_as_tooling(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "evaluate/run.py": "# eval",
+        })
+        doc = generate_architecture_doc(scan)
+        assert "tooling" in doc.lower()
+
+
+class TestRepoSummaryFixtureLangs:
+    def test_file_counts_excludes_fixture_langs(self, tmp_path):
+        from code_review_graph.memory.generator import generate_repo_summary
+        scan = make_scan_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "tests/fixtures/Sample.java": "class Sample {}",
+        })
+        doc = generate_repo_summary(scan)
+        # Java is fixture-only; should not appear in File counts section
+        # Python should be there
+        assert "python" in doc.lower()
+
+    def test_fixture_footnote_appears(self, tmp_path):
+        from code_review_graph.memory.generator import generate_repo_summary
+        scan = make_scan_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "tests/fixtures/Sample.java": "class Sample {}",
+        })
+        doc = generate_repo_summary(scan)
+        assert "fixture-only" in doc
+
+
+# ---------------------------------------------------------------------------
+# Generator — Ticket C2+C3: CLAUDE.md entry points and README purpose
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeMemoryDoc:
+    def test_entry_points_from_pyproject_scripts(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "pyproject.toml": (
+                "[project]\nname = \"foo\"\n\n"
+                "[project.scripts]\nrepomind = \"code_review_graph.cli:main\"\n"
+            ),
+        })
+        doc = generate_claude_memory_doc(scan)
+        assert "Entry points" in doc
+        assert "repomind" in doc
+
+    def test_no_entry_points_section_when_no_scripts(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "pyproject.toml": "[project]\nname = \"foo\"\n",
+        })
+        doc = generate_claude_memory_doc(scan)
+        # No scripts, no cli.py → no entry points section
+        assert "Entry points" not in doc
+
+    def test_cli_py_fallback_entry_point(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/__init__.py": "",
+            "src/main.py": "x = 1",
+            "src/cli.py": "def main(): pass",
+        })
+        doc = generate_claude_memory_doc(scan)
+        assert "Entry points" in doc
+        assert "cli.py" in doc
+
+    def test_readme_excerpt_in_purpose_section(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "README.md": "# My Tool\n\n![badge](url)\n\nA powerful graph analysis tool.\n",
+        })
+        doc = generate_claude_memory_doc(scan)
+        assert "Purpose" in doc
+        assert "A powerful graph analysis tool." in doc
+
+    def test_fixture_langs_excluded_from_conventions(self, tmp_path):
+        from code_review_graph.memory.generator import generate_claude_memory_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/main.py": "x = 1",
+            "tests/fixtures/Sample.java": "class Sample {}",
+        })
+        doc = generate_claude_memory_doc(scan)
+        # Java is fixture-only — its convention should NOT appear
+        assert "java" not in doc.lower() or "fixture" in doc.lower()
+
+
+# ---------------------------------------------------------------------------
+# Generator — Ticket D: Graph-backed architecture.md
+# ---------------------------------------------------------------------------
+
+
+class TestArchitectureDocGraphSignals:
+    def test_graph_signals_replace_source_dir_guesses(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc, _render_inspect_first
+        from code_review_graph.memory.graph_bridge import ArchitectureGraphSignals
+        scan = make_scan_repo(tmp_path, {"src/main.py": "x = 1"})
+        signals = ArchitectureGraphSignals(key_files=[
+            ("src/cli.py", "CLI entry point, high fan-in"),
+            ("src/graph.py", "core graph engine"),
+        ])
+        doc = generate_architecture_doc(scan, graph_signals=signals)
+        assert "src/cli.py" in doc
+        assert "src/graph.py" in doc
+
+    def test_no_graph_signals_falls_back_gracefully(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {"src/main.py": "x = 1"})
+        doc = generate_architecture_doc(scan, graph_signals=None)
+        # Should still produce a valid architecture doc
+        assert "# Architecture:" in doc
+        assert "Inspect first" in doc

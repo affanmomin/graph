@@ -297,8 +297,17 @@ def run_memory_init_pipeline(root: Path) -> dict:
     artifacts.append({"artifact_id": "repo", "artifact_type": "repo",
                        "relative_path": ".agent-memory/repo.md"})
 
+    # Fetch architecture graph signals when graph is available (Ticket D)
+    _arch_signals = None
+    try:
+        from .graph_bridge import get_architecture_graph_signals, graph_available
+        if graph_available(root):
+            _arch_signals = get_architecture_graph_signals(root)
+    except Exception:
+        pass
+
     write_statuses[".agent-memory/architecture.md"] = write_text_if_changed(
-        dirs["root"] / "architecture.md", generate_architecture_doc(scan)
+        dirs["root"] / "architecture.md", generate_architecture_doc(scan, graph_signals=_arch_signals)
     )
     artifacts.append({"artifact_id": "architecture", "artifact_type": "architecture",
                        "relative_path": ".agent-memory/architecture.md"})
