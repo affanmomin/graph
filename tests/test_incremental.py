@@ -5,9 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from code_review_graph.graph import GraphStore
 from code_review_graph.incremental import (
+    _extra_skip_dirs,
     _is_binary,
     _load_ignore_patterns,
     _should_ignore,
+    _WALK_SKIP_DIRS,
+    collect_all_files,
     find_project_root,
     find_repo_root,
     full_build,
@@ -94,12 +97,92 @@ class TestIgnorePatterns:
         assert "# comment" not in patterns
         assert "" not in patterns
 
+    def test_repomindignore_loaded(self, tmp_path):
+        """User-facing .repomindignore file is recognised."""
+        (tmp_path / ".repomindignore").write_text("my-venv/**\n")
+        patterns = _load_ignore_patterns(tmp_path)
+        assert "my-venv/**" in patterns
+
+    def test_both_ignore_files_merged(self, tmp_path):
+        """Patterns from both ignore files are combined."""
+        (tmp_path / ".repomindignore").write_text("from-repomind/**\n")
+        (tmp_path / ".code-review-graphignore").write_text("from-crg/**\n")
+        patterns = _load_ignore_patterns(tmp_path)
+        assert "from-repomind/**" in patterns
+        assert "from-crg/**" in patterns
+
     def test_should_ignore_matches(self):
         patterns = ["node_modules/**", "*.pyc", ".git/**"]
         assert _should_ignore("node_modules/foo/bar.js", patterns)
         assert _should_ignore("test.pyc", patterns)
         assert _should_ignore(".git/HEAD", patterns)
         assert not _should_ignore("src/main.py", patterns)
+
+
+class TestExtraSkipDirs:
+    def test_extracts_single_component(self):
+        dirs = _extra_skip_dirs(["my-venv/**", "dist/**", "*.min.js"])
+        assert "my-venv" in dirs
+        assert "dist" in dirs
+        # Glob-only patterns should not produce directory names
+        assert "*.min.js" not in dirs
+
+    def test_does_not_extract_multi_component(self):
+        """Multi-component paths like BE/src/generated/** must not be pruned at root."""
+        dirs = _extra_skip_dirs(["BE/src/generated/**"])
+        assert "BE" not in dirs
+
+    def test_empty_patterns(self):
+        assert _extra_skip_dirs([]) == frozenset()
+
+
+class TestWalkSkipDirs:
+    def test_contains_node_modules(self):
+        assert "node_modules" in _WALK_SKIP_DIRS
+
+    def test_contains_venv(self):
+        assert ".venv" in _WALK_SKIP_DIRS and "venv" in _WALK_SKIP_DIRS
+
+
+class TestCollectAllFilesWalk:
+    """collect_all_files fallback walk must prune ignored directories."""
+
+    def test_does_not_enter_node_modules(self, tmp_path):
+        """node_modules is never entered even without a git repo."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("x = 1")
+        nm = tmp_path / "node_modules" / "react"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("module.exports = {}")
+
+        files = collect_all_files(tmp_path)
+        assert any("main.py" in f for f in files)
+        assert not any("node_modules" in f for f in files)
+
+    def test_does_not_enter_nested_node_modules(self, tmp_path):
+        """node_modules inside a subdirectory is also pruned."""
+        (tmp_path / "BE" / "src").mkdir(parents=True)
+        (tmp_path / "BE" / "src" / "app.ts").write_text("const x = 1")
+        nm = tmp_path / "BE" / "node_modules" / "express"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("module.exports = {}")
+
+        files = collect_all_files(tmp_path)
+        assert any("app.ts" in f for f in files)
+        assert not any("node_modules" in f for f in files)
+
+    def test_respects_repomindignore_directory_exclusion(self, tmp_path):
+        """Directories listed in .repomindignore are excluded."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("x = 1")
+        gen = tmp_path / "generated"
+        gen.mkdir()
+        (gen / "model.py").write_text("# auto-generated")
+        (tmp_path / ".repomindignore").write_text("generated/**\n")
+
+        files = collect_all_files(tmp_path)
+        assert any("main.py" in f for f in files)
+        assert not any("generated" in f for f in files)
 
 
 class TestIsBinary:

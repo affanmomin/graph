@@ -45,6 +45,18 @@ DEFAULT_IGNORE_PATTERNS = [
     "*.db-wal",
 ]
 
+# Directories to always skip during os.walk — never enter these at any depth.
+# Mirrors scanner._SKIP_DIRS so both subsystems behave consistently.
+_WALK_SKIP_DIRS: frozenset[str] = frozenset({
+    ".git", ".hg", ".svn",
+    "node_modules", ".venv", "venv", "env", ".env",
+    "__pycache__", ".mypy_cache", ".ruff_cache", ".pytest_cache",
+    "dist", "build", "out", "target",
+    ".next", ".nuxt", ".turbo",
+    ".code-review-graph", ".agent-memory",
+    "coverage", ".coverage",
+})
+
 
 def find_repo_root(start: Path | None = None) -> Optional[Path]:
     """Walk up from start to find the nearest .git directory."""
@@ -103,15 +115,39 @@ def get_db_path(repo_root: Path) -> Path:
 
 
 def _load_ignore_patterns(repo_root: Path) -> list[str]:
-    """Load ignore patterns from .code-review-graphignore file."""
+    """Load ignore patterns from ``.repomindignore`` and ``.code-review-graphignore``.
+
+    Both file names are supported so users can use either the product-facing
+    name (``.repomindignore``) or the legacy internal name.  Patterns from
+    both files are merged when both are present.
+    """
     patterns = list(DEFAULT_IGNORE_PATTERNS)
-    ignore_file = repo_root / ".code-review-graphignore"
-    if ignore_file.exists():
-        for line in ignore_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#"):
-                patterns.append(line)
+    for filename in (".repomindignore", ".code-review-graphignore"):
+        ignore_file = repo_root / filename
+        if ignore_file.exists():
+            for line in ignore_file.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    patterns.append(line)
     return patterns
+
+
+def _extra_skip_dirs(patterns: list[str]) -> frozenset[str]:
+    """Extract single-component directory names from patterns like ``name/**``.
+
+    Used to augment ``_WALK_SKIP_DIRS`` with user-defined exclusions so that
+    ``os.walk`` can prune them at any depth without entering those directories.
+    Only patterns of the form ``{dirname}/**`` or ``{dirname}/*`` (single path
+    component before the slash) are extracted — multi-component patterns like
+    ``BE/src/generated/**`` are left for per-file filtering.
+    """
+    names: set[str] = set()
+    for p in patterns:
+        if "/" in p:
+            first, rest = p.split("/", 1)
+            if first and "*" not in first and rest in ("**", "*", ""):
+                names.add(first)
+    return frozenset(names)
 
 
 def _should_ignore(path: str, patterns: list[str]) -> bool:
@@ -203,14 +239,35 @@ def collect_all_files(repo_root: Path) -> list[str]:
     # Prefer git ls-files for tracked files
     tracked = get_all_tracked_files(repo_root)
     if tracked:
-        candidates = tracked
+        candidates: list[str] = tracked
     else:
-        # Fallback: walk directory
-        candidates = [
-            str(p.relative_to(repo_root))
-            for p in repo_root.rglob("*")
-            if p.is_file()
-        ]
+        # Fallback: walk directory tree, pruning ignored directories early.
+        # Using os.walk with topdown=True lets us remove directory names from
+        # dirnames in-place before the walk descends into them, which prevents
+        # entering large trees like node_modules entirely — critical for repos
+        # without .gitignore coverage (no-git fallback path).
+        skip_dirs = _WALK_SKIP_DIRS | _extra_skip_dirs(ignore_patterns)
+        candidates = []
+        for dirpath_str, dirnames, filenames in os.walk(str(repo_root), topdown=True):
+            dirpath = Path(dirpath_str)
+            # First pass: prune by well-known noise directory names (any depth)
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+            # Second pass: prune by repo-relative path pattern (handles
+            # patterns like "BE/src/generated/**")
+            try:
+                rel_dir = dirpath.relative_to(repo_root)
+            except ValueError:
+                rel_dir = Path(".")
+            dirnames[:] = [
+                d for d in dirnames
+                if not _should_ignore(str(rel_dir / d), ignore_patterns)
+            ]
+            for filename in filenames:
+                try:
+                    rel_path = str((dirpath / filename).relative_to(repo_root))
+                except ValueError:
+                    continue
+                candidates.append(rel_path)
 
     for rel_path in candidates:
         if _should_ignore(rel_path, ignore_patterns):

@@ -86,6 +86,15 @@ _SHAPE_MIN_FILES: int = 3       # need at least this many source files to classi
 _FLAT_MIN_FILES: int = 5        # flat-package requires at least this many files in ≤1 dir
 _STRUCTURED_MIN_DIRS: int = 3   # structured requires at least this many unique parent dirs
 
+# Test-framework config filenames that indicate co-located tests in a directory.
+# Used to detect test dirs even when there's no conventional tests/ subdirectory.
+_TEST_CONFIG_FILES: frozenset[str] = frozenset({
+    "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs",
+    "jest.config.json",
+    "vitest.config.js", "vitest.config.ts", "vitest.config.mts",
+    "pytest.ini", "conftest.py",
+})
+
 # Config files that give strong framework / stack hints
 _CONFIG_FILES: dict[str, str] = {
     "pyproject.toml": "python",
@@ -243,20 +252,36 @@ def _collect_config_files(repo_root: Path, scan: RepoScan) -> None:
         if (repo_root / name).exists():
             found.append(name)
 
-    # Framework hints from specific filenames
+    # Framework hints from specific filenames at repo root
     for filename, framework in _FRAMEWORK_HINTS.items():
         if (repo_root / filename).exists():
             hints.add(framework)
 
-    # Peek inside package.json for known frameworks
+    # Peek inside package.json / pyproject.toml at repo root
     pkg_json = repo_root / "package.json"
     if pkg_json.exists():
         hints.update(_hints_from_package_json(pkg_json))
 
-    # Peek inside pyproject.toml for known frameworks
     pyproject = repo_root / "pyproject.toml"
     if pyproject.exists():
         hints.update(_hints_from_pyproject(pyproject))
+
+    # Also scan one level deep (all top-level dirs) for framework signals.
+    # This finds Express/Next.js when package.json lives in BE/ or FE/ subdirs
+    # rather than at the repo root — common in monorepo and full-stack layouts.
+    for top_dir in scan.top_level_dirs:
+        sub = repo_root / top_dir
+        if not sub.is_dir():
+            continue
+        sub_pkg = sub / "package.json"
+        if sub_pkg.exists():
+            hints.update(_hints_from_package_json(sub_pkg))
+        sub_pyproject = sub / "pyproject.toml"
+        if sub_pyproject.exists():
+            hints.update(_hints_from_pyproject(sub_pyproject))
+        for filename, framework in _FRAMEWORK_HINTS.items():
+            if (sub / filename).exists():
+                hints.add(framework)
 
     scan.config_files = sorted(found)
     scan.framework_hints = sorted(hints)
@@ -308,6 +333,45 @@ def _classify_dirs(repo_root: Path, scan: RepoScan) -> None:
             "No conventional source directory (src/, lib/, app/) detected. "
             "Source may be at the repo root or in non-standard locations."
         )
+
+    # Deep scan: look one level into source dirs for conventional test subdirs
+    # and detect co-located tests via jest.config.*, vitest.config.*, etc.
+    # This handles patterns like FE/jest.config.ts (tests co-located with source).
+    tests_set = set(tests)
+    for src_dir in src:
+        src_path = repo_root / src_dir
+        if not src_path.is_dir():
+            continue
+        # Check for __tests__, spec/, etc. one level deep
+        for entry in src_path.iterdir():
+            if entry.is_dir() and entry.name.lower() in _TEST_DIR_NAMES:
+                rel = f"{src_dir}/{entry.name}"
+                if rel not in tests_set:
+                    tests.append(rel)
+                    tests_set.add(rel)
+        # Test config file in this source dir → tests are co-located here
+        if _has_test_config(src_path) and src_dir not in tests_set:
+            tests.append(src_dir)
+            tests_set.add(src_dir)
+
+    # Also check all top-level dirs for test subdirs and config files.
+    # This catches layouts where BE/ or FE/ aren't in _SRC_DIR_NAMES but still
+    # contain tests (either co-located via jest.config.* or in a __tests__/ subdir).
+    for name in scan.top_level_dirs:
+        dir_path = repo_root / name
+        if not dir_path.is_dir():
+            continue
+        # Check for __tests__, spec/, etc. directly inside the top-level dir
+        for entry in dir_path.iterdir():
+            if entry.is_dir() and entry.name.lower() in _TEST_DIR_NAMES:
+                rel = f"{name}/{entry.name}"
+                if rel not in tests_set:
+                    tests.append(rel)
+                    tests_set.add(rel)
+        # Test config file in this top-level dir → tests are co-located here
+        if _has_test_config(dir_path) and name not in tests_set:
+            tests.append(name)
+            tests_set.add(name)
 
     if not tests:
         scan.notes.append("No conventional test directory detected.")
@@ -399,6 +463,18 @@ def _dir_has_source(directory: Path) -> bool:
     """Return True if *directory* contains at least one recognised source file."""
     for f in directory.iterdir():
         if f.is_file() and f.suffix.lower() in _EXT_TO_LANG:
+            return True
+    return False
+
+
+def _has_test_config(directory: Path) -> bool:
+    """Return True if *directory* directly contains a test configuration file.
+
+    Used to detect co-located test setups (e.g. ``FE/jest.config.ts``) when
+    there is no conventional ``tests/`` or ``__tests__/`` subdirectory.
+    """
+    for fname in _TEST_CONFIG_FILES:
+        if (directory / fname).exists():
             return True
     return False
 

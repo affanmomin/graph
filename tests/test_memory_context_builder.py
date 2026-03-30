@@ -23,7 +23,7 @@ import json
 
 import pytest
 
-from code_review_graph.memory.context_builder import build_context_pack, _tokenize, _score
+from code_review_graph.memory.context_builder import build_context_pack, _is_catchall, _tokenize, _score
 from code_review_graph.memory.models import FeatureMemory, ModuleMemory, TaskContextPack
 
 
@@ -288,6 +288,55 @@ class TestFallback:
     def test_empty_repo_is_empty(self):
         pack = build_context_pack("add oauth provider", [], [])
         assert pack.is_empty()
+
+    def test_catchall_excluded_from_fallback_when_meaningful_exists(self):
+        """Low-confidence large catch-all features are excluded from fallback packs
+        when a meaningful (higher-confidence, smaller) feature exists."""
+        catchall = FeatureMemory(
+            name="Src",
+            files=[f"src/file{i}.py" for i in range(40)],  # 40 files
+            tests=[],
+            confidence=0.4,
+        )
+        meaningful = FeatureMemory(
+            name="auth",
+            files=["src/auth/login.py"],
+            tests=[],
+            confidence=0.85,
+        )
+        # Totally unrelated task to trigger fallback path
+        pack = build_context_pack("xyzzy unrelated task", [catchall, meaningful], [])
+        # meaningful should be preferred over the catch-all
+        assert "auth" in pack.relevant_features
+        assert "Src" not in pack.relevant_features
+
+    def test_catchall_included_when_only_option(self):
+        """When only a catch-all exists, it is still surfaced (never leave pack empty)."""
+        catchall = FeatureMemory(
+            name="Src",
+            files=[f"src/file{i}.py" for i in range(40)],
+            tests=[],
+            confidence=0.4,
+        )
+        pack = build_context_pack("xyzzy unrelated task", [catchall], [])
+        assert isinstance(pack, TaskContextPack)
+
+
+class TestIsCatchall:
+    def test_low_conf_large_is_catchall(self):
+        f = FeatureMemory(name="Src", files=[f"src/f{i}.py" for i in range(35)],
+                          tests=[], confidence=0.4)
+        assert _is_catchall(f) is True
+
+    def test_high_conf_large_is_not_catchall(self):
+        f = FeatureMemory(name="auth", files=[f"src/f{i}.py" for i in range(35)],
+                          tests=[], confidence=0.85)
+        assert _is_catchall(f) is False
+
+    def test_low_conf_small_is_not_catchall(self):
+        f = FeatureMemory(name="auth", files=["src/auth/login.py"],
+                          tests=[], confidence=0.4)
+        assert _is_catchall(f) is False
 
 
 # ---------------------------------------------------------------------------

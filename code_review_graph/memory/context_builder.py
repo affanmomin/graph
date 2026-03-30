@@ -78,6 +78,14 @@ _MAX_MODULES = 5
 _MAX_FILES = 20
 _MIN_SCORE = 0.05  # minimum relevance score to include anything
 
+# Catch-all suppression thresholds.
+# A feature is considered a "catch-all" group if it has both very low
+# confidence AND a large file count — this pattern indicates a directory-level
+# fallback classification rather than a coherent domain feature.  Catch-alls
+# are excluded from fallback context packs when better alternatives exist.
+_CATCHALL_MAX_CONFIDENCE = 0.45
+_CATCHALL_MIN_FILES = 30
+
 # Graph enrichment limits — how many extra entries the graph bridge may add.
 # Final file count is still capped by _MAX_FILES at pack assembly time.
 _GRAPH_SEED_FILES = 10        # top N heuristic files used as graph query seeds
@@ -175,10 +183,14 @@ def build_context_pack(
     relevant_features = [(f, s) for f, s in scored_features if s >= _MIN_SCORE][:_MAX_FEATURES]
     relevant_modules = [(m, s) for m, s in scored_modules if s >= _MIN_SCORE][:_MAX_MODULES]
 
-    # Fallback: no match → take top candidates so the pack is never empty
+    # Fallback: no match → take top candidates so the pack is never empty.
+    # Prefer meaningful features over catch-all groups (low-confidence, large
+    # file-count areas that are directory-level fallbacks, not domain features).
     fallback = not relevant_features and not relevant_modules
     if fallback:
-        relevant_features = scored_features[:min(2, len(scored_features))]
+        meaningful = [(f, s) for f, s in scored_features if not _is_catchall(f)]
+        fallback_feats = meaningful if meaningful else scored_features
+        relevant_features = fallback_feats[:min(2, len(fallback_feats))]
         relevant_modules = scored_modules[:min(2, len(scored_modules))]
 
     top_features = [f for f, _ in relevant_features]
@@ -249,6 +261,18 @@ def _tokenize(text: str) -> set[str]:
         if tok and len(tok) >= 2 and tok not in _STOP_WORDS:
             tokens.add(tok)
     return tokens
+
+
+def _is_catchall(feature: FeatureMemory) -> bool:
+    """Return True when *feature* looks like a catch-all classification.
+
+    A catch-all is a large, low-confidence group that results from
+    directory-level fallback heuristics rather than genuine domain detection.
+    Including these in context packs adds noise without meaningful routing.
+    They are still written as memory artifacts — this only suppresses them
+    from the fallback context-pack selection path.
+    """
+    return feature.confidence < _CATCHALL_MAX_CONFIDENCE and len(feature.files) >= _CATCHALL_MIN_FILES
 
 
 def _score(

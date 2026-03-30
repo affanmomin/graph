@@ -143,6 +143,42 @@ class TestScannerDirectories:
         result = scan_repo(tmp_path)
         assert any("doc" in n.lower() for n in result.notes)
 
+    def test_detects_jest_config_in_source_dir(self, tmp_path):
+        """jest.config.ts inside a source dir marks it as test-containing."""
+        make_repo(tmp_path, {
+            "FE/src/page.tsx": "export default function Page() {}",
+            "FE/jest.config.ts": "export default { testEnvironment: 'jsdom' }",
+        })
+        result = scan_repo(tmp_path)
+        assert "FE" in result.test_dirs
+
+    def test_detects_vitest_config_in_source_dir(self, tmp_path):
+        """vitest.config.ts inside a source dir marks it as test-containing."""
+        make_repo(tmp_path, {
+            "app/src/main.ts": "const x = 1",
+            "app/vitest.config.ts": "export default defineConfig({})",
+        })
+        result = scan_repo(tmp_path)
+        assert "app" in result.test_dirs
+
+    def test_detects_nested_tests_subdir_in_source(self, tmp_path):
+        """A __tests__/ subdirectory inside a source dir is found."""
+        make_repo(tmp_path, {
+            "FE/src/app.tsx": "export const App = () => null",
+            "FE/__tests__/app.test.tsx": "describe('App', () => {})",
+        })
+        result = scan_repo(tmp_path)
+        assert any("__tests__" in d for d in result.test_dirs)
+
+    def test_jest_config_does_not_duplicate_test_dir(self, tmp_path):
+        """A dir appearing in both top-level test dirs and config detection is not duplicated."""
+        make_repo(tmp_path, {
+            "tests/test_main.py": "",
+            "tests/jest.config.js": "module.exports = {}",
+        })
+        result = scan_repo(tmp_path)
+        assert result.test_dirs.count("tests") == 1
+
 
 class TestScannerConfigAndFrameworks:
     def test_detects_pyproject(self, tmp_path):
@@ -169,6 +205,34 @@ class TestScannerConfigAndFrameworks:
         make_repo(tmp_path, {"pyproject.toml": '[project]\ndependencies=["django"]'})
         result = scan_repo(tmp_path)
         assert "Django" in result.framework_hints
+
+    def test_detects_express_in_subdirectory_package_json(self, tmp_path):
+        """Express in BE/package.json should be detected even without root package.json."""
+        make_repo(tmp_path, {
+            "BE/src/app.ts": "const x = 1",
+            "BE/package.json": '{"dependencies":{"express":"5.0.0"}}',
+            "FE/src/page.tsx": "export default function Page() {}",
+        })
+        result = scan_repo(tmp_path)
+        assert "Express" in result.framework_hints
+
+    def test_detects_nextjs_in_subdirectory_package_json(self, tmp_path):
+        """Next.js in FE/package.json should be detected."""
+        make_repo(tmp_path, {
+            "FE/src/page.tsx": "export default function Page() {}",
+            "FE/package.json": '{"dependencies":{"next":"16.0.0"}}',
+        })
+        result = scan_repo(tmp_path)
+        assert "Next.js" in result.framework_hints
+
+    def test_detects_nextjs_config_in_subdirectory(self, tmp_path):
+        """next.config.ts in a subdirectory is detected."""
+        make_repo(tmp_path, {
+            "FE/src/page.tsx": "export default function Page() {}",
+            "FE/next.config.ts": "export default {}",
+        })
+        result = scan_repo(tmp_path)
+        assert "Next.js" in result.framework_hints
 
     def test_detects_readme(self, tmp_path):
         make_repo(tmp_path, {"README.md": "# My Project"})
