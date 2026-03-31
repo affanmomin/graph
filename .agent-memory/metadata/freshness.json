@@ -2,16 +2,34 @@
   "artifacts_refreshed": [
     ".agent-memory/changes/recent.md"
   ],
-  "changed_files": [],
-  "changed_files_count": 0,
+  "changed_files": [
+    ".agent-memory/CLAUDE.md",
+    ".agent-memory/architecture.md",
+    ".agent-memory/metadata/confidence.json",
+    ".agent-memory/metadata/manifest.json",
+    ".agent-memory/modules/code_review_graph.md",
+    "code_review_graph/memory/classifier.py",
+    "code_review_graph/memory/commands.py",
+    "code_review_graph/memory/generator.py",
+    "code_review_graph/memory/graph_bridge.py",
+    "code_review_graph/memory/lookup.py",
+    "tests/test_memory_classifier.py",
+    "tests/test_memory_generator.py"
+  ],
+  "changed_files_count": 12,
   "graph_expanded_features": [],
   "graph_expanded_files": [],
   "graph_expanded_modules": [],
-  "impacted_features": [],
+  "impacted_features": [
+    "blastradius",
+    "cli",
+    "graph",
+    "search"
+  ],
   "impacted_modules": [
     "code_review_graph-memory"
   ],
-  "mode": "full",
-  "reason": "full refresh requested",
-  "refreshed_at": "2026-03-25T12:12:17.032013+00:00"
+  "mode": "incremental",
+  "reason": "incremental: 12 changed file(s), 5 artifact(s) directly impacted",
+  "refreshed_at": "2026-03-31T06:13:09.615160+00:00"
 }
