@@ -819,3 +819,93 @@ class TestArchitectureDocGraphSignals:
         # Should still produce a valid architecture doc
         assert "# Architecture:" in doc
         assert "Inspect first" in doc
+
+
+# ---------------------------------------------------------------------------
+# Generator — Inspect first: key files in fallback (no graph signals)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectFirstKeyFiles:
+    def test_cli_py_listed_in_inspect_first(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {
+            "code_review_graph/__init__.py": "",
+            "code_review_graph/cli.py": "def main(): pass",
+        })
+        doc = generate_architecture_doc(scan, graph_signals=None)
+        assert "cli.py" in doc
+        assert "CLI entry point" in doc
+
+    def test_main_py_listed_in_inspect_first(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/__init__.py": "",
+            "src/main.py": "x = 1",
+        })
+        doc = generate_architecture_doc(scan, graph_signals=None)
+        assert "main.py" in doc
+        assert "application entry point" in doc
+
+    def test_parser_py_listed_in_inspect_first(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/__init__.py": "",
+            "src/parser.py": "class Parser: pass",
+        })
+        doc = generate_architecture_doc(scan, graph_signals=None)
+        assert "parser.py" in doc
+        assert "parser implementation" in doc
+
+    def test_graph_py_listed_in_inspect_first(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/__init__.py": "",
+            "src/graph.py": "class Graph: pass",
+        })
+        doc = generate_architecture_doc(scan, graph_signals=None)
+        assert "graph.py" in doc
+        assert "graph engine" in doc
+
+    def test_at_most_3_key_files_listed(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        scan = make_scan_repo(tmp_path, {
+            "src/__init__.py": "",
+            "src/cli.py": "def main(): pass",
+            "src/main.py": "x = 1",
+            "src/app.py": "x = 1",
+            "src/server.py": "x = 1",
+            "src/parser.py": "class P: pass",
+        })
+        doc = generate_architecture_doc(scan, graph_signals=None)
+        # Count how many key file labels appear (CLI, entry point, etc.)
+        key_labels = ["CLI entry point", "application entry point", "server entry point",
+                      "parser implementation", "graph engine", "tool", "module public interface"]
+        label_hits = sum(1 for lbl in key_labels if lbl in doc)
+        assert label_hits <= 3
+
+    def test_no_key_files_when_source_dir_empty(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        # Only a config file, no source dir with known key files
+        scan = make_scan_repo(tmp_path, {
+            "pyproject.toml": "[project]\nname = 'myapp'\n",
+        })
+        doc = generate_architecture_doc(scan, graph_signals=None)
+        # Should still produce a valid doc without crashing
+        assert "# Architecture:" in doc
+
+    def test_key_files_not_shown_when_graph_signals_present(self, tmp_path):
+        from code_review_graph.memory.generator import generate_architecture_doc
+        from code_review_graph.memory.graph_bridge import ArchitectureGraphSignals
+        scan = make_scan_repo(tmp_path, {
+            "src/__init__.py": "",
+            "src/cli.py": "def main(): pass",
+        })
+        signals = ArchitectureGraphSignals(key_files=[
+            ("src/graph.py", "core graph engine"),
+        ])
+        doc = generate_architecture_doc(scan, graph_signals=signals)
+        # Graph signals take priority; "CLI entry point" heuristic label should NOT appear
+        assert "CLI entry point" not in doc
+        # But the graph signal file should appear
+        assert "src/graph.py" in doc

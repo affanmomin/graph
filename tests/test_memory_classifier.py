@@ -552,3 +552,115 @@ class TestModulesStrategy0:
         names = [m.name for m in modules]
         # No root-level source files in mypkg → no "mypkg" module from S0
         assert "mypkg" not in names, f"S0 should not emit root mod with no root files; got {names}"
+
+    def test_confidence_high_with_5_or_more_files(self, tmp_path):
+        """Strategy 0: >= 5 root files → confidence 0.90."""
+        repo = make_repo(tmp_path, {
+            "mypkg/__init__.py": "",
+            "mypkg/a.py": "x=1",
+            "mypkg/b.py": "x=1",
+            "mypkg/c.py": "x=1",
+            "mypkg/d.py": "x=1",
+            "mypkg/e.py": "x=1",
+            "mypkg/sub/__init__.py": "",
+            "mypkg/sub/foo.py": "x=1",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        root_mod = next((m for m in modules if m.name == "mypkg"), None)
+        assert root_mod is not None
+        assert root_mod.confidence >= 0.90, f"Expected >= 0.90, got {root_mod.confidence}"
+
+    def test_confidence_medium_with_3_to_4_files(self, tmp_path):
+        """Strategy 0: 3–4 root files → confidence 0.85."""
+        repo = make_repo(tmp_path, {
+            "mypkg/__init__.py": "",
+            "mypkg/a.py": "x=1",
+            "mypkg/b.py": "x=1",
+            "mypkg/c.py": "x=1",
+            "mypkg/sub/__init__.py": "",
+            "mypkg/sub/foo.py": "x=1",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        root_mod = next((m for m in modules if m.name == "mypkg"), None)
+        assert root_mod is not None
+        assert root_mod.confidence >= 0.85, f"Expected >= 0.85, got {root_mod.confidence}"
+        assert root_mod.confidence < 0.90, f"Expected < 0.90, got {root_mod.confidence}"
+
+    def test_confidence_low_with_fewer_than_3_files(self, tmp_path):
+        """Strategy 0: < 3 root files → confidence 0.80."""
+        repo = make_repo(tmp_path, {
+            "mypkg/__init__.py": "",
+            "mypkg/a.py": "x=1",
+            "mypkg/sub/__init__.py": "",
+            "mypkg/sub/foo.py": "x=1",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        root_mod = next((m for m in modules if m.name == "mypkg"), None)
+        assert root_mod is not None
+        assert root_mod.confidence >= 0.80, f"Expected >= 0.80, got {root_mod.confidence}"
+        assert root_mod.confidence < 0.85, f"Expected < 0.85, got {root_mod.confidence}"
+
+    def test_rationale_includes_file_count_and_src_dir(self, tmp_path):
+        """Strategy 0 rationale should mention the src dir name and file count."""
+        repo = make_repo(tmp_path, {
+            "mypkg/__init__.py": "",
+            "mypkg/a.py": "x=1",
+            "mypkg/b.py": "x=1",
+            "mypkg/sub/__init__.py": "",
+            "mypkg/sub/foo.py": "x=1",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        root_mod = next((m for m in modules if m.name == "mypkg"), None)
+        assert root_mod is not None
+        assert "mypkg" in root_mod.summary, f"src dir missing from rationale: {root_mod.summary}"
+        assert "2 files" in root_mod.summary, f"file count missing from rationale: {root_mod.summary}"
+
+
+# ---------------------------------------------------------------------------
+# Module classification — Strategy 3 fallback for flat src/ (no __init__.py)
+# ---------------------------------------------------------------------------
+
+
+class TestModulesStrategy3Fallback:
+    def test_flat_src_no_init_triggers_strategy3(self, tmp_path):
+        """A src/ dir with NO __init__.py and no sub-packages → Strategy 3 fires."""
+        repo = make_repo(tmp_path, {
+            "src/parser.py": "def parse(): pass",
+            "src/graph.py": "def build(): pass",
+            "src/utils.py": "def util(): pass",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        names = [m.name for m in modules]
+        # Strategy 0 should NOT fire (no __init__.py)
+        # Strategy 1 finds no sub-packages
+        # Strategy 3 should fall back to adding src/ as a module
+        assert "src" in names, f"Expected Strategy 3 to add 'src'; got {names}"
+
+    def test_flat_src_strategy3_includes_all_files(self, tmp_path):
+        """Strategy 3 fallback module for src/ should contain all source files."""
+        repo = make_repo(tmp_path, {
+            "src/parser.py": "def parse(): pass",
+            "src/graph.py": "def build(): pass",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        src_mod = next((m for m in modules if m.name == "src"), None)
+        assert src_mod is not None
+        assert len(src_mod.files) == 2
+
+    def test_flat_src_strategy3_lower_confidence(self, tmp_path):
+        """Strategy 3 fallback modules should have confidence < 0.80 (lower than S0)."""
+        repo = make_repo(tmp_path, {
+            "src/parser.py": "def parse(): pass",
+            "src/graph.py": "def build(): pass",
+        })
+        sc = scan(repo)
+        modules = classify_modules(repo, sc)
+        src_mod = next((m for m in modules if m.name == "src"), None)
+        assert src_mod is not None
+        assert src_mod.confidence < 0.80, f"Expected < 0.80 for S3 fallback; got {src_mod.confidence}"

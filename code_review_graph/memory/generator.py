@@ -339,7 +339,7 @@ def _render_coupling_notes(scan: RepoScan) -> str:
     """Surface coupling or ambiguity worth flagging."""
     notes: list[str] = []
 
-    if len(scan.languages) > 3:
+    if len(scan.languages) > 2:
         notes.append(
             f"Multi-language repo ({', '.join(scan.languages)}). "
             "Check language boundaries before refactoring."
@@ -380,9 +380,35 @@ def _render_inspect_first(
         for fp, desc in graph_signals.key_files[:5]:
             items.append(f"`{fp}` — {desc}")
     else:
-        # Heuristic fallback: source dirs
+        # Heuristic fallback: source dirs + key files within them
         for d in scan.source_dirs[:3]:
             items.append(f"`{d}/` — main source code")
+        # Also surface well-known key files that are likely high-signal
+        _KEY_FILE_LABELS: list[tuple[str, str]] = [
+            ("cli.py", "CLI entry point"),
+            ("main.py", "application entry point"),
+            ("app.py", "application entry point"),
+            ("server.py", "server entry point"),
+            ("parser.py", "parser implementation"),
+            ("graph.py", "graph engine"),
+            ("tools.py", "tool/API implementations"),
+            ("index.py", "module public interface"),
+        ]
+        key_files_found: list[str] = []
+        for src_dir in scan.source_dirs:
+            for fname, label in _KEY_FILE_LABELS:
+                candidate = f"{src_dir}/{fname}"
+                if (scan.repo_root / candidate).exists() and candidate not in key_files_found:
+                    key_files_found.append(candidate)
+                    if len(key_files_found) >= 3:
+                        break
+            if len(key_files_found) >= 3:
+                break
+        for kf_path in key_files_found:
+            # Find the label for this file
+            fname = Path(kf_path).name
+            label = next((lbl for fn, lbl in _KEY_FILE_LABELS if fn == fname), "key file")
+            items.append(f"`{kf_path}` — {label}")
 
     for cfg in ("pyproject.toml", "package.json", "go.mod", "Cargo.toml"):
         if cfg in scan.config_files:
@@ -1375,6 +1401,9 @@ def generate_claude_memory_doc(scan: RepoScan, overrides: "Overrides | None" = N
         stack_parts.append(f"**Source dirs:** {', '.join(sorted(scan.source_dirs))}")
     if scan.test_dirs:
         stack_parts.append(f"**Test dirs:** {', '.join(sorted(scan.test_dirs))}")
+    tooling_dirs = getattr(scan, "tooling_dirs", [])
+    if tooling_dirs:
+        stack_parts.append(f"**Tooling dirs:** {', '.join(sorted(tooling_dirs))}")
     if stack_parts:
         sections.append(render_markdown_section("Stack", "\n".join(stack_parts)))
 

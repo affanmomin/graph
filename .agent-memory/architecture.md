@@ -18,6 +18,9 @@
 ## Inspect first
 
 - `code_review_graph/` — main source code
+- `code_review_graph/cli.py` — CLI entry point
+- `code_review_graph/main.py` — application entry point
+- `code_review_graph/parser.py` — parser implementation
 - `pyproject.toml` — project metadata and dependencies
 - `README.md` — project intent and setup
 - `code-review-graph-vscode/test/` — to understand expected behaviour

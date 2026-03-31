@@ -12,6 +12,7 @@ Every Claude Code session starts cold. You paste architecture context. You re-ex
 **Languages:** python, typescript
 **Source dirs:** code_review_graph
 **Test dirs:** code-review-graph-vscode/test, tests
+**Tooling dirs:** benchmarks, evaluate
 
 ## Top-level layout
 

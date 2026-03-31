@@ -138,12 +138,15 @@ def classify_modules(repo_root: Path, scan: RepoScan) -> list[ModuleMemory]:
         if root_files:
             key = src_dir
             if key not in candidates:
+                n = len(root_files)
+                confidence = 0.90 if n >= 5 else 0.85 if n >= 3 else 0.80
+                rationale = f"root-level package files in '{src_dir}' ({n} files)"
                 candidates[key] = _ModuleCandidate(
                     name=src_dir,
                     directory=src_dir,
                     files=root_files,
-                    confidence=0.85,
-                    rationale="root-level package files (not in any subpackage)",
+                    confidence=confidence,
+                    rationale=rationale,
                 )
 
     # Strategy 1 — sub-packages inside known source dirs

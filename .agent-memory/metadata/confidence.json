@@ -75,7 +75,7 @@
   ],
   "modules": [
     {
-      "confidence": 0.8,
+      "confidence": 0.85,
       "file_count": 9,
       "name": "code_review_graph",
       "slug": "code_review_graph",

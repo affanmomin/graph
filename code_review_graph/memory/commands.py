@@ -751,16 +751,17 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
     _agent_mem = _agent_memory_root(repo_root)
     _db_exists = (repo_root / ".code-review-graph" / "graph.db").exists()
     _memory_initialized = (_agent_mem / "metadata" / "manifest.json").exists()
-    if not _memory_initialized:
-        print("  Hint: .agent-memory/ not yet initialized.")
-        print("  For best results run:")
-        print("    repomind build          # parse repo into graph")
-        print("    repomind memory init    # generate memory artifacts")
-        print()
-    elif not _db_exists:
-        print("  Hint: graph.db not found — running in heuristic-only mode.")
-        print("  Run `repomind build` for graph-grounded context.")
-        print()
+    if not as_json:
+        if not _memory_initialized:
+            print("  Hint: .agent-memory/ not yet initialized.")
+            print("  For best results run:")
+            print("    repomind build          # parse repo into graph")
+            print("    repomind memory init    # generate memory artifacts")
+            print()
+        elif not _db_exists:
+            print("  Hint: graph.db not found — running in heuristic-only mode.")
+            print("  Run `repomind build` for graph-grounded context.")
+            print()
 
     # Classify — fast, deterministic, no LLMs
     _t0 = time.perf_counter()

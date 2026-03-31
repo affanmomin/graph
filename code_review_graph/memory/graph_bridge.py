@@ -1261,50 +1261,60 @@ def get_architecture_graph_signals(
         return None
     try:
         from ..graph import GraphStore
+
+        root = Path(repo_root)
+        root_str = str(root)
+
         with GraphStore(p) as gs:
             stats = gs.get_stats()
             if stats.total_nodes == 0:
                 return None
 
-            # Collect fan-in counts: for each file, how many other files call/import it?
-            fan_in: dict[str, set[str]] = {}  # target_file -> set of source files
-
-            # Iterate over all File nodes to find the universe of files
-            # We'll use get_nodes_by_file on each known file — but we don't have
-            # a "list all files" method.  Instead, query by file via impact_radius
-            # on nothing, or use the edges approach.
-            # Use search_nodes to find all File nodes (kind="File")
-            file_nodes = gs.search_nodes("", kind="File", limit=2000)
-            all_files = [n.file_path for n in file_nodes if n.file_path and not _is_test_file(n.file_path)]
-
-            # For each file, get incoming edges (CALLS, IMPORTS_FROM)
-            _INCOMING_KINDS = frozenset({"CALLS", "IMPORTS_FROM"})
-            for fp in all_files:
-                nodes = gs.get_nodes_by_file(fp)
-                for node in nodes:
-                    if node.kind not in ("Function", "Class", "Method", "File"):
-                        continue
-                    incoming = gs.get_edges_by_target(node.qualified_name)
-                    for edge in incoming:
-                        if edge.kind not in _INCOMING_KINDS:
-                            continue
-                        src_file = _file_from_qualified(edge.source_qualified_name)
-                        if src_file and src_file != fp and not _is_test_file(src_file):
-                            if fp not in fan_in:
-                                fan_in[fp] = set()
-                            fan_in[fp].add(src_file)
-
-            if not fan_in:
+            # Universe of non-test source files inside this repo
+            src_files: set[str] = {
+                f for f in gs.get_all_files()
+                if f.startswith(root_str) and not _is_test_file(f)
+            }
+            if not src_files:
                 return None
 
-            # Sort by fan-in count descending, take top max_files
-            ranked = sorted(fan_in.items(), key=lambda x: -len(x[1]))[:max_files]
+            # Fan-in: for each source file, collect the set of other source files
+            # that import or call something inside it.
+            fan_in: dict[str, set[str]] = {f: set() for f in src_files}
+
+            _FANIN_KINDS = frozenset({"CALLS", "IMPORTS_FROM"})
+            for edge in gs.get_all_edges():
+                if edge.kind not in _FANIN_KINDS:
+                    continue
+                # The file that owns the edge (source side)
+                src_fp = edge.file_path
+                if not src_fp or src_fp not in src_files:
+                    continue
+                # Extract the file path of the target symbol
+                target_fp = _file_from_qualified(edge.target_qualified)
+                if not target_fp or target_fp not in src_files or target_fp == src_fp:
+                    continue
+                fan_in[target_fp].add(src_fp)
+
+            # Require fan-in >= 2 to avoid noise from small/single-file references.
+            # A file with only 1 caller is not meaningfully "core" to the architecture.
+            ranked = sorted(
+                ((fp, callers) for fp, callers in fan_in.items() if len(callers) >= 2),
+                key=lambda x: -len(x[1]),
+            )[:max_files]
+
+            if not ranked:
+                return None
 
             key_files: list[tuple[str, str]] = []
-            for fp, importers in ranked:
-                count = len(importers)
+            for fp, callers in ranked:
+                try:
+                    rel = str(Path(fp).relative_to(root))
+                except ValueError:
+                    rel = fp
+                count = len(callers)
                 desc = f"high fan-in — imported/called by {count} other file(s)"
-                key_files.append((fp, desc))
+                key_files.append((rel, desc))
 
             return ArchitectureGraphSignals(key_files=key_files)
 

@@ -453,6 +453,14 @@ def changed_match(
     else:
         lines.append("  No recent changes detected in this area.")
         lines.append("")
+        # Surface recent git history for this area's files when no freshness changes found
+        if obj is not None and repo_root is not None:
+            git_log_lines = _git_log_for_files(getattr(obj, "files", [])[:15], repo_root)
+            if git_log_lines:
+                lines.append("  Recent git commits touching this area:")
+                for gl in git_log_lines:
+                    lines.append(f"    {gl}")
+                lines.append("")
 
     # Graph impact — seeds are the directly changed area files (or obj.files if none)
     graph_seeds = area_files if area_files else (getattr(obj, "files", [])[:10] if obj else [])
@@ -924,6 +932,37 @@ def _classification_source(confidence: float) -> str:
     if confidence >= 0.65:
         return "directory name heuristic"
     return "weak heuristic"
+
+
+def _git_log_for_files(
+    files: list[str],
+    repo_root: Path,
+    max_commits: int = 8,
+) -> list[str]:
+    """Return recent git log lines for *files* within *repo_root*.
+
+    Runs ``git log --oneline -N -- <files>`` and returns the output lines.
+    Returns an empty list when git is unavailable or produces no output.
+    Never raises.
+    """
+    if not files:
+        return []
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", f"-{max_commits}", "--", *files],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+        lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+        return lines[:max_commits]
+    except Exception as exc:
+        logger.debug("_git_log_for_files: failed: %s", exc)
+        return []
 
 
 def _not_found_explain(match: TargetMatch) -> str:
