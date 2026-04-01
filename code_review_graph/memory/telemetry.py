@@ -98,6 +98,7 @@ def print_stats(repo_root: Path, last: int = 20) -> None:
 
     print()
     _print_aggregate(entries)
+    _print_savings(repo_root, entries)
 
 
 def _format_detail(e: dict[str, Any]) -> str:
@@ -177,6 +178,105 @@ def _print_aggregate(entries: list[dict[str, Any]]) -> None:
 
         extra_str = "  " + ", ".join(extras) if extras else ""
         print(f"    {cmd:<18}  {len(runs):>3} runs  {dur_str}{extra_str}")
+    print()
+
+
+def _print_savings(repo_root: Path, entries: list[dict[str, Any]]) -> None:
+    """Print a before/after token savings comparison to prove product value."""
+    _SOURCE_EXTS = {
+        ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java",
+        ".rb", ".cs", ".cpp", ".c", ".h", ".swift", ".kt", ".vue",
+        ".sol", ".md",
+    }
+    _SKIP_DIRS = {
+        ".git", "node_modules", "__pycache__", ".repomind",
+        ".code-review-graph", ".venv", "venv", "dist", "build",
+        ".agent-memory",
+    }
+
+    # --- measure repo source files ---
+    total_chars = 0
+    total_files = 0
+    try:
+        for path in repo_root.rglob("*"):
+            if path.is_file() and path.suffix in _SOURCE_EXTS:
+                # skip ignored dirs
+                parts = set(path.relative_to(repo_root).parts[:-1])
+                if parts & _SKIP_DIRS:
+                    continue
+                try:
+                    total_chars += path.stat().st_size
+                    total_files += 1
+                except OSError:
+                    pass
+    except Exception:
+        return
+
+    if total_files == 0:
+        return
+
+    # --- measure .agent-memory/ artifacts ---
+    mem_root = repo_root / ".agent-memory"
+    mem_chars = 0
+    mem_files = 0
+    if mem_root.exists():
+        for p in mem_root.rglob("*"):
+            if p.is_file():
+                try:
+                    mem_chars += p.stat().st_size
+                    mem_files += 1
+                except OSError:
+                    pass
+
+    # --- bootstrap file (CLAUDE.md) ---
+    claude_bytes = 0
+    claude_path = mem_root / "CLAUDE.md"
+    if claude_path.exists():
+        try:
+            claude_bytes = claude_path.stat().st_size
+        except OSError:
+            pass
+
+    # --- last prepare-context entry ---
+    last_pc = next(
+        (e for e in reversed(entries) if e.get("command") == "prepare-context"),
+        None,
+    )
+
+    # --- compute token estimates (4 chars ≈ 1 token) ---
+    repo_tokens = total_chars // 4
+    mem_tokens = mem_chars // 4
+    claude_tokens = claude_bytes // 4
+
+    print(f"  Token savings  (proof of value)")
+    print(f"  {'─'*50}")
+
+    repo_kb = total_chars / 1024
+    mem_kb = mem_chars / 1024
+    ratio = total_chars / mem_chars if mem_chars else 0
+    print(f"  Repo source files   : {total_files:>4} files  {repo_kb:>7.1f} KB  ≈ {repo_tokens:,} tokens")
+    if mem_files:
+        print(f"  .agent-memory/      : {mem_files:>4} files  {mem_kb:>7.1f} KB  ≈ {mem_tokens:,} tokens"
+              + (f"  ({ratio:.0f}× smaller)" if ratio >= 2 else ""))
+    if claude_bytes:
+        bootstrap_ratio = total_chars / claude_bytes if claude_bytes else 0
+        print(f"  CLAUDE.md bootstrap :            {claude_bytes:>7} B   ≈ {claude_tokens:,} tokens"
+              + (f"  ({bootstrap_ratio:.0f}× smaller)" if bootstrap_ratio >= 2 else ""))
+
+    if last_pc:
+        files_ret = last_pc.get("files_returned", 0)
+        tokens_ret = last_pc.get("tokens_estimated", 0)
+        scope_pct = (1 - files_ret / total_files) * 100 if total_files else 0
+        print()
+        print(f"  Last prepare-context:")
+        print(f"    {files_ret} of {total_files} files returned  ({scope_pct:.0f}% scope reduction)")
+        if tokens_ret:
+            savings = repo_tokens - tokens_ret
+            savings_pct = savings / repo_tokens * 100 if repo_tokens else 0
+            print(f"    ≈ {tokens_ret:,} tokens to read those files"
+                  f"  vs ≈ {repo_tokens:,} tokens for full repo"
+                  f"  ({savings_pct:.0f}% saved)")
+
     print()
 
 
