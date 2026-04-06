@@ -1321,3 +1321,120 @@ def get_architecture_graph_signals(
     except Exception as exc:
         logger.debug("get_architecture_graph_signals: failed: %s", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Import graph for feature clustering
+# ---------------------------------------------------------------------------
+
+
+def get_import_graph(
+    repo_root: str | Path,
+    source_files: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Return a file-level import graph for graph-based feature clustering.
+
+    Reads IMPORTS_FROM edges from the graph and resolves both relative-path
+    targets (``./routes/auth``) and node-qualified-name targets to their
+    repo-relative file paths.
+
+    Returns ``{importing_file: [imported_file, ...]}`` using repo-relative paths.
+    Only edges where both endpoints resolve to known source files are included.
+
+    Args:
+        repo_root:    Repo root path.
+        source_files: Optional allow-list of repo-relative file paths to
+                      restrict the graph to.  When ``None``, all files in
+                      the graph are included.
+
+    Returns:
+        Dict mapping repo-relative file path → sorted list of repo-relative
+        file paths it imports from.  Empty dict when graph is unavailable.
+    """
+    root = Path(repo_root)
+    _SOURCE_EXTS = {
+        ".py", ".ts", ".tsx", ".js", ".jsx",
+        ".go", ".rs", ".java", ".rb", ".cs",
+        ".kt", ".swift", ".php", ".vue", ".sol",
+    }
+
+    try:
+        from ..graph import GraphStore
+
+        db = _db_path(root)
+        if not db.exists():
+            return {}
+
+        with GraphStore(str(db)) as gs:
+            # Build absolute file path → repo-relative path index
+            all_graph_files = gs.get_all_files()
+
+            def _rel(fp: str) -> str | None:
+                try:
+                    return str(Path(fp).relative_to(root))
+                except ValueError:
+                    return None
+
+            # Set of known repo-relative source files
+            known_rel: set[str] = set()
+            abs_to_rel: dict[str, str] = {}
+            for fp in all_graph_files:
+                r = _rel(fp)
+                if r:
+                    known_rel.add(r)
+                    abs_to_rel[fp] = r
+
+            allowed: set[str] = set(source_files) if source_files is not None else known_rel
+
+            # node qualified_name → repo-relative file_path
+            node_to_file: dict[str, str] = {}
+            for fp in all_graph_files:
+                r = abs_to_rel.get(fp)
+                if r and r in allowed:
+                    for node in gs.get_nodes_by_file(fp):
+                        node_to_file[node.qualified_name] = r
+
+            def _resolve_target(src_abs: str, target: str) -> str | None:
+                """Resolve an import target to a repo-relative file path.
+
+                Handles two target formats stored by the parser:
+                1. Relative path: ``./routes/auth``, ``../services/user``
+                2. Node qualified name: ``src.services.auth.AuthService``
+                """
+                # Format 1: relative path import
+                if target.startswith("."):
+                    src_dir = Path(src_abs).parent
+                    candidate = (src_dir / target).resolve()
+                    # Try with and without source extensions
+                    for ext in list(_SOURCE_EXTS) + [""]:
+                        probe = candidate.with_suffix(ext) if ext else candidate
+                        r = _rel(str(probe))
+                        if r and r in known_rel:
+                            return r
+                    return None
+
+                # Format 2: node qualified name lookup
+                return node_to_file.get(target)
+
+            # Build file → file adjacency
+            import_graph: dict[str, set[str]] = {f: set() for f in allowed}
+
+            all_edges = gs.get_all_edges()
+            for edge in all_edges:
+                if edge.kind != "IMPORTS_FROM":
+                    continue
+                if not edge.file_path:
+                    continue
+                src_rel = abs_to_rel.get(edge.file_path) or _rel(edge.file_path)
+                if not src_rel or src_rel not in allowed:
+                    continue
+                tgt_rel = _resolve_target(edge.file_path, edge.target_qualified)
+                if not tgt_rel or tgt_rel not in allowed or tgt_rel == src_rel:
+                    continue
+                import_graph.setdefault(src_rel, set()).add(tgt_rel)
+
+            return {k: sorted(v) for k, v in import_graph.items() if v}
+
+    except Exception as exc:
+        logger.debug("get_import_graph: failed: %s", exc)
+        return {}

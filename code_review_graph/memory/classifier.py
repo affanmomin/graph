@@ -239,7 +239,14 @@ def classify_features(repo_root: Path, scan: RepoScan) -> list[FeatureMemory]:
     """
     candidates: dict[str, _FeatureCandidate] = {}
 
-    # Walk every source directory
+    # Strategy 0 (highest priority): graph-based import clustering.
+    # Uses IMPORTS_FROM edges to find connected file clusters, then names
+    # them by dominant domain keyword. This finds cross-cutting features
+    # like "auth" across routes/ + services/ + middleware/ that directory
+    # scanning misses entirely.
+    _cluster_by_imports(repo_root, scan, candidates)
+
+    # Walk every source directory (fills gaps where graph clustering found nothing)
     search_roots = _feature_search_roots(repo_root, scan)
 
     for search_root in search_roots:
@@ -703,3 +710,170 @@ def _resolve_module_dependencies(
             if owner and owner != module.name:
                 dependent_names.add(owner)
         module.dependents = sorted(dependent_names)
+
+
+# ---------------------------------------------------------------------------
+# Graph-based import clustering (Strategy 0)
+# ---------------------------------------------------------------------------
+
+
+def _cluster_by_imports(
+    repo_root: Path,
+    scan: RepoScan,
+    candidates: dict[str, "_FeatureCandidate"],
+) -> None:
+    """Populate *candidates* using keyword-anchored subgraph expansion.
+
+    For each Tier-1 domain keyword found in any source file path:
+    1. Collect anchor files — files whose path contains the keyword
+    2. Expand 1 hop forward (files the anchors import)
+    3. Expand 1 hop backward (files that import the anchors)
+    4. Exclude shared infrastructure hubs (imported by many unrelated files)
+
+    This finds cross-cutting features that span directories — e.g. "auth"
+    across routes/auth.ts + services/auth.service.ts + middleware/auth.ts.
+    Only emits a feature when the result spans >= 2 different directories,
+    meaning it genuinely crosses the directory boundary (directory scan
+    handles the single-directory case).
+
+    This is strictly additive: only inserts new candidates, never removes
+    or replaces anything already in *candidates*.
+    """
+    import re as _re
+
+    try:
+        from .graph_bridge import get_import_graph
+
+        # Collect all source files across source dirs
+        all_source: list[str] = []
+        for src_dir in scan.source_dirs:
+            src_path = repo_root / src_dir
+            if not src_path.is_dir():
+                continue
+            for p in src_path.rglob("*"):
+                if p.is_file() and p.suffix in _EXT_TO_LANG:
+                    skip = any(part in _SKIP_DIRS for part in p.parts)
+                    if not skip:
+                        try:
+                            all_source.append(str(p.relative_to(repo_root)))
+                        except ValueError:
+                            pass
+
+        if not all_source:
+            return
+
+        import_graph = get_import_graph(repo_root, all_source)
+        if not import_graph:
+            return
+
+        # Build reverse index: target → set of files that import it
+        reverse: dict[str, set[str]] = defaultdict(set)
+        for src, targets in import_graph.items():
+            for tgt in targets:
+                reverse[tgt].add(src)
+
+        # Mark shared infrastructure hubs — files imported by many unrelated files
+        # (config/env.ts, db/prisma.ts, utils/logger.ts) should not anchor features
+        _HUB_THRESHOLD = 4
+        hub_files: set[str] = {fp for fp, importers in reverse.items()
+                               if len(importers) >= _HUB_THRESHOLD}
+
+        # Find keyword anchors: Tier-1 domain keywords present in any file path
+        keyword_anchors: dict[str, set[str]] = defaultdict(set)
+        for f in all_source:
+            if _is_test_path(f):
+                continue
+            p = Path(f)
+            for part in list(p.parts) + [p.stem]:
+                spaced = _re.sub(r"([a-z])([A-Z])", r"\1 \2", part)
+                for tok in _re.split(r"[\W_]+", spaced.lower()):
+                    if len(tok) >= 3 and tok in _DOMAIN_KEYWORDS_HIGH:
+                        keyword_anchors[tok].add(f)
+
+        if not keyword_anchors:
+            return
+
+        # Expand each keyword 1 hop in both directions
+        for keyword, anchors in keyword_anchors.items():
+            feature_files: set[str] = set(anchors)
+
+            for anchor in anchors:
+                # Forward: what anchor imports (excluding shared hubs)
+                for imported in import_graph.get(anchor, []):
+                    if imported not in hub_files and not _is_test_path(imported):
+                        feature_files.add(imported)
+                # Backward: what imports anchor (excluding shared hubs)
+                for importer in reverse.get(anchor, set()):
+                    if importer not in hub_files and not _is_test_path(importer):
+                        feature_files.add(importer)
+
+            if len(feature_files) < 2:
+                continue
+
+            # Only emit when result spans multiple directories (cross-cutting signal)
+            unique_dirs = {
+                str(Path(f).parent) for f in feature_files
+            }
+            if len(unique_dirs) < 2:
+                continue
+
+            feature_name = keyword.title()
+            existing = candidates.get(feature_name)
+            if existing is not None and existing.confidence >= 0.80:
+                # Already found with high confidence — just merge in any new files
+                existing.files = sorted(set(existing.files) | feature_files)
+                continue
+
+            candidates[feature_name] = _FeatureCandidate(
+                name=feature_name,
+                files=sorted(feature_files),
+                confidence=0.80,
+                rationale=(
+                    f"graph import cluster — '{keyword}' anchor across "
+                    f"{len(unique_dirs)} directories, {len(feature_files)} file(s)"
+                ),
+            )
+
+    except Exception as exc:
+        logger.debug("_cluster_by_imports: failed: %s", exc)
+
+
+def _is_test_path(file_path: str) -> bool:
+    """Return True if the file looks like a test file."""
+    lp = file_path.lower()
+    return any(frag in lp for frag in (
+        "/tests/", "/test/", "/spec/",
+        "test_", "_test.", ".spec.", ".test.",
+    ))
+
+
+def _name_cluster(files: list[str]) -> str | None:
+    """Return the best domain keyword name for a cluster, or None.
+
+    Scores every path token in the cluster against high- and medium-tier
+    domain keyword vocabulary. Returns the token with the highest weighted
+    hit count, biased toward Tier-1 keywords.
+    """
+    scores: dict[str, float] = defaultdict(float)
+
+    for f in files:
+        p = Path(f)
+        # Tokens from directory components + file stem
+        parts = list(p.parts[:-1]) + [p.stem]
+        for part in parts:
+            # Split camelCase + delimiters
+            import re
+            tokens_raw = re.sub(r"([a-z])([A-Z])", r"\1 \2", part)
+            tokens = [t.lower() for t in re.split(r"[\W_]+", tokens_raw) if len(t) >= 3]
+            for tok in tokens:
+                if tok in _DOMAIN_KEYWORDS_HIGH:
+                    scores[tok] += 2.0
+                elif tok in _DOMAIN_KEYWORDS_MEDIUM:
+                    scores[tok] += 1.0
+
+    if not scores:
+        return None
+
+    best = max(scores, key=lambda k: scores[k])
+    # Require a minimum signal strength
+    return best if scores[best] >= 2.0 else None
