@@ -32,6 +32,11 @@
       "relative_path": ".agent-memory/changes/hotspots.md"
     },
     {
+      "artifact_id": "feature:benchmark",
+      "artifact_type": "feature",
+      "relative_path": ".agent-memory/features/benchmark.md"
+    },
+    {
       "artifact_id": "feature:blastradius",
       "artifact_type": "feature",
       "relative_path": ".agent-memory/features/blastradius.md"
@@ -55,11 +60,6 @@
       "artifact_id": "feature:cursorresolver",
       "artifact_type": "feature",
       "relative_path": ".agent-memory/features/cursorresolver.md"
-    },
-    {
-      "artifact_id": "feature:extension",
-      "artifact_type": "feature",
-      "relative_path": ".agent-memory/features/extension.md"
     },
     {
       "artifact_id": "feature:graph",
@@ -102,7 +102,7 @@
       "relative_path": ".agent-memory/rules/safe-boundaries.md"
     }
   ],
-  "generated_at": "2026-03-31T06:10:54.382790+00:00",
+  "generated_at": "2026-04-06T07:31:09.150493+00:00",
   "repo_root": "/Users/apple/Desktop/graph",
   "scan_confidence": 1.0,
   "source_roots": [

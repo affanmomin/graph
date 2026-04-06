@@ -1386,6 +1386,18 @@ def generate_claude_memory_doc(scan: RepoScan, overrides: "Overrides | None" = N
         "> Add domain corrections in `.agent-memory/overrides/`."
     )
 
+    # Agent instructions — always first, tells Claude how to use this memory
+    sections.append(
+        "## How to use this memory\n\n"
+        "Before starting any new task, call `memory_prepare_context_tool` with the task "
+        "description. It returns the relevant files, tests, and rules so you go straight "
+        "to the right place without exploring the codebase blind.\n\n"
+        "Available tools:\n"
+        "- `memory_prepare_context_tool <task>` — focused file + test + rule pack for a task\n"
+        "- `memory_explain_area_tool <area>` — explain a feature, module, or file path\n"
+        "- `memory_recent_changes_tool <area>` — what changed recently in an area"
+    )
+
     # Purpose — first meaningful sentence from README
     readme_excerpt = getattr(scan, "readme_excerpt", "")
     if readme_excerpt:

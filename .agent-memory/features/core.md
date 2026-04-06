@@ -6,10 +6,11 @@
 
 ## Purpose
 
-Implements the **Core** product area (4 file(s) detected; classified by weak heuristic (low confidence)).
+Implements the **Core** product area (5 file(s) detected; classified by weak heuristic (low confidence)).
 
 ## Main files
 
+- `code_review_graph/memory/telemetry.py`
 - `code_review_graph/memory/writer.py`
 - `code_review_graph/parser.py`
 - `code_review_graph/tools.py`
@@ -28,16 +29,16 @@ Implements the **Core** product area (4 file(s) detected; classified by weak heu
 - `tests/test_memory_generator.py`
 - `tests/test_memory_generator_vocab.py`
 - `tests/test_memory_graph_bridge.py`
+- `tests/test_memory_hooks.py`
 - `tests/test_memory_imports.py`
 - `tests/test_memory_integration.py`
 - `tests/test_memory_lookup.py`
 - `tests/test_memory_lookup_semantic.py`
 - `tests/test_memory_overrides.py`
+- `tests/test_memory_pack_cache.py`
 - `tests/test_memory_phase4_graph_leverage.py`
 - `tests/test_memory_phase5_perf_ux.py`
-- `tests/test_memory_quality_verdict.py`
-- `tests/test_memory_refresh.py`
-- _…and 8 more_
+- _…and 10 more_
 
 ## Warnings and notes
 

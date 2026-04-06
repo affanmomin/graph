@@ -5,7 +5,7 @@
 ## Stack
 
 - **Languages**: python, typescript
-- **File counts**: python (65), typescript (19)
+- **File counts**: python (69), typescript (19)
   _+ fixture-only: c, cpp, csharp, go, java, kotlin, php, ruby, rust, solidity, swift, vue_
 - **Config files**: .github, pyproject.toml
 

@@ -1,19 +1,27 @@
 {
   "features": [
     {
-      "confidence": 0.4,
-      "file_count": 2,
-      "name": "Blastradius",
-      "slug": "blastradius",
-      "test_count": 25,
+      "confidence": 0.45,
+      "file_count": 1,
+      "name": "Benchmark",
+      "slug": "benchmark",
+      "test_count": 0,
       "type": "feature"
     },
     {
       "confidence": 0.4,
       "file_count": 2,
+      "name": "Blastradius",
+      "slug": "blastradius",
+      "test_count": 27,
+      "type": "feature"
+    },
+    {
+      "confidence": 0.42,
+      "file_count": 8,
       "name": "Cache",
       "slug": "cache",
-      "test_count": 25,
+      "test_count": 28,
       "type": "feature"
     },
     {
@@ -21,15 +29,15 @@
       "file_count": 8,
       "name": "Cli",
       "slug": "cli",
-      "test_count": 26,
+      "test_count": 28,
       "type": "feature"
     },
     {
       "confidence": 0.3,
-      "file_count": 4,
+      "file_count": 5,
       "name": "Core",
       "slug": "core",
-      "test_count": 28,
+      "test_count": 30,
       "type": "feature"
     },
     {
@@ -42,26 +50,18 @@
     },
     {
       "confidence": 0.4,
-      "file_count": 5,
-      "name": "Extension",
-      "slug": "extension",
-      "test_count": 26,
-      "type": "feature"
-    },
-    {
-      "confidence": 0.4,
       "file_count": 7,
       "name": "Graph",
       "slug": "graph",
-      "test_count": 27,
+      "test_count": 29,
       "type": "feature"
     },
     {
       "confidence": 0.4,
-      "file_count": 11,
+      "file_count": 10,
       "name": "Search",
       "slug": "search",
-      "test_count": 26,
+      "test_count": 28,
       "type": "feature"
     },
     {
@@ -84,10 +84,10 @@
     },
     {
       "confidence": 0.85,
-      "file_count": 16,
+      "file_count": 18,
       "name": "code_review_graph/memory",
       "slug": "code_review_graph-memory",
-      "test_count": 26,
+      "test_count": 28,
       "type": "module"
     }
   ]

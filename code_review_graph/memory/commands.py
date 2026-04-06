@@ -385,7 +385,15 @@ def run_memory_init_pipeline(root: Path) -> dict:
     artifacts.append({"artifact_id": "claude-md", "artifact_type": "claude-md",
                        "relative_path": rel_claude})
 
-    # 9. Metadata
+    # 9. Pack cache — pre-computed index for fast prepare-context lookups
+    try:
+        from .pack_cache import build_pack_cache, save_pack_cache
+        _pack_cache = build_pack_cache(features, modules, vocabulary)
+        save_pack_cache(_pack_cache, dirs["root"])
+    except Exception as _pce:
+        logger.debug("pack_cache: failed to build/save: %s", _pce)
+
+    # 10. Metadata
     manifest = generate_manifest(scan, artifacts)
     write_statuses[".agent-memory/metadata/manifest.json"] = save_manifest(manifest, dirs["metadata"])
     write_statuses[".agent-memory/metadata/sources.json"] = save_sources_json(
@@ -559,6 +567,7 @@ def memory_init_command(args: argparse.Namespace) -> None:
         print()
     print(f"  Completed in {_duration:.2f}s")
     print()
+
     print("  Done. Commit .agent-memory/ to share memory with your team.")
 
     # Record metrics
@@ -763,16 +772,30 @@ def memory_prepare_context_command(args: argparse.Namespace) -> None:
             print("  Run `repomind build` for graph-grounded context.")
             print()
 
-    # Classify — fast, deterministic, no LLMs
     _t0 = time.perf_counter()
-    scan = scan_repo(repo_root)
-    features = classify_features(repo_root, scan)
-    modules = classify_modules(repo_root, scan)
+
+    # Fast path: load pre-built cache if .agent-memory/ is initialised
+    from .pack_cache import features_from_cache, keywords_from_cache, load_pack_cache, modules_from_cache
+    _cache = load_pack_cache(_agent_memory_root(repo_root))
+
+    if _cache is not None:
+        features = features_from_cache(_cache)
+        modules = modules_from_cache(_cache)
+        _kw_map = keywords_from_cache(_cache)
+    else:
+        # Slow path: live scan (memory not yet initialised)
+        scan = scan_repo(repo_root)
+        features = classify_features(repo_root, scan)
+        modules = classify_modules(repo_root, scan)
+        _kw_map = {}
 
     # Load human overrides if .agent-memory/ exists
     overrides = load_overrides(_agent_memory_root(repo_root))
 
-    pack = build_context_pack(task, features, modules, overrides=overrides, repo_root=repo_root)
+    pack = build_context_pack(
+        task, features, modules,
+        overrides=overrides, repo_root=repo_root, kw_map=_kw_map,
+    )
     _duration = time.perf_counter() - _t0
 
     if as_json:

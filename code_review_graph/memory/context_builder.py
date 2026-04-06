@@ -99,7 +99,8 @@ _W_NAME = 2.0      # strongest signal: task mentions the feature/module by name
 _W_FILE_STEM = 1.0  # task mentions a file's stem (e.g. "login" → login.py)
 _W_PATH_DIR = 1.5   # task mentions a directory component (e.g. "billing/")
 _W_SYMBOL = 1.0    # task tokens match function/class names from graph vocabulary
-_W_TOTAL = _W_NAME + _W_FILE_STEM + _W_PATH_DIR  # 4.5 (without symbol component)
+_W_KEYWORD = 1.2   # task tokens match pre-computed keyword index (pack cache)
+_W_TOTAL = _W_NAME + _W_FILE_STEM + _W_PATH_DIR  # 4.5 (without symbol/keyword)
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +115,7 @@ def build_context_pack(
     overrides: Overrides | None = None,
     repo_root: Path | None = None,
     vocabulary: dict[str, list[str]] | None = None,
+    kw_map: dict[str, set[str]] | None = None,
 ) -> TaskContextPack:
     """Build a focused context pack for *task*.
 
@@ -152,11 +154,19 @@ def build_context_pack(
 
     # Score every feature and module
     scored_features = sorted(
-        ((f, _score(task_tokens, f.name, f.files, f.confidence, vocabulary)) for f in features),
+        (
+            (f, _score(task_tokens, f.name, f.files, f.confidence, vocabulary,
+                       keywords=kw_map.get(f.name) if kw_map else None))
+            for f in features
+        ),
         key=lambda x: (-x[1], x[0].name),
     )
     scored_modules = sorted(
-        ((m, _score(task_tokens, m.name, m.files, m.confidence, vocabulary)) for m in modules),
+        (
+            (m, _score(task_tokens, m.name, m.files, m.confidence, vocabulary,
+                       keywords=kw_map.get(m.name) if kw_map else None))
+            for m in modules
+        ),
         key=lambda x: (-x[1], x[0].name),
     )
 
@@ -251,9 +261,14 @@ def build_context_pack(
 def _tokenize(text: str) -> set[str]:
     """Return a set of meaningful lowercase tokens from *text*.
 
-    Splits on whitespace and common punctuation; drops stop words and
-    single-character tokens.
+    Splits on whitespace, common punctuation, and camelCase boundaries so
+    that identifiers like ``ContactForm`` produce tokens ``{"contact", "form"}``
+    and task descriptions like "create a modal for the ContactForm" match a
+    feature whose files contain ``ContactForm.tsx``.
     """
+    # Split camelCase before lower-casing: "ContactForm" → "Contact Form"
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", text)
     raw = re.split(r"[\s\-_./\\<>\"'`]+", text.lower())
     tokens: set[str] = set()
     for tok in raw:
@@ -281,15 +296,18 @@ def _score(
     files: list[str],
     confidence: float,
     vocabulary: dict[str, list[str]] | None = None,
+    keywords: set[str] | None = None,
 ) -> float:
     """Compute a relevance score for a feature/module against *task_tokens*.
 
-    Four scoring components (weights defined in module constants):
+    Five scoring components (weights defined in module constants):
     1. Name overlap    — task tokens appear in the feature/module name
-    2. File-stem overlap — task tokens appear in file stems
+    2. File-stem overlap — task tokens appear in file stems (camelCase-split)
     3. Path-dir overlap  — task tokens appear in directory components
     4. Symbol overlap    — task tokens appear in function/class names from graph
                            (only when *vocabulary* is provided)
+    5. Keyword overlap   — task tokens appear in pre-computed keyword index from
+                           pack cache (camelCase-split file stems + symbol names)
 
     Returns a float approximately in [0.0, 1.0].
     """
@@ -302,18 +320,17 @@ def _score(
     name_tokens = _tokenize(name)
     name_overlap = len(task_tokens & name_tokens) / n
 
-    # Component 2: file-stem overlap
+    # Component 2: file-stem overlap (tokenize splits camelCase)
     stem_tokens: set[str] = set()
     for f in files:
-        stem = Path(f).stem.lower()
-        stem_tokens.update(re.split(r"[-_]", stem))
+        stem_tokens.update(_tokenize(Path(f).stem))
     stem_overlap = len(task_tokens & stem_tokens) / n
 
     # Component 3: directory-component overlap
     dir_tokens: set[str] = set()
     for f in files:
         for part in Path(f).parts[:-1]:
-            dir_tokens.update(re.split(r"[-_]", part.lower()))
+            dir_tokens.update(_tokenize(part))
     dir_overlap = len(task_tokens & dir_tokens) / n
 
     # Component 4: symbol overlap — function/class names from graph vocabulary
@@ -322,24 +339,26 @@ def _score(
         sym_tokens: set[str] = set()
         for fp in files:
             for sym in vocabulary.get(fp, []):
-                sym_tokens.update(re.split(r"[-_]", sym.lower()))
+                sym_tokens.update(_tokenize(sym))
         symbol_overlap = min(len(task_tokens & sym_tokens) / n, 1.0)
 
-    # Symbol weight: same as file-stem (1.0) — it's a direct content signal
-    # Total weight expands by _W_SYMBOL when vocabulary is non-empty
+    # Component 5: pre-computed keyword index (pack cache — broadest signal)
+    keyword_overlap = 0.0
+    if keywords:
+        keyword_overlap = min(len(task_tokens & keywords) / n, 1.0)
+
+    # Accumulate weights for active components
+    w_total = _W_TOTAL
+    raw = _W_NAME * name_overlap + _W_FILE_STEM * stem_overlap + _W_PATH_DIR * dir_overlap
     if vocabulary:
-        w_total = _W_TOTAL + _W_SYMBOL
-        raw = (
-            _W_NAME * name_overlap
-            + _W_FILE_STEM * stem_overlap
-            + _W_PATH_DIR * dir_overlap
-            + _W_SYMBOL * symbol_overlap
-        ) / w_total
-    else:
-        raw = (_W_NAME * name_overlap + _W_FILE_STEM * stem_overlap + _W_PATH_DIR * dir_overlap) / _W_TOTAL
+        raw += _W_SYMBOL * symbol_overlap
+        w_total += _W_SYMBOL
+    if keywords:
+        raw += _W_KEYWORD * keyword_overlap
+        w_total += _W_KEYWORD
 
     # Confidence soft-weighting: high-confidence classifications rank higher
-    return round(raw * (0.4 + 0.6 * confidence), 4)
+    return round((raw / w_total) * (0.4 + 0.6 * confidence), 4)
 
 
 # ---------------------------------------------------------------------------

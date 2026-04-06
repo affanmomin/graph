@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Implements the **Search** product area (11 file(s) detected; classified by weak heuristic (low confidence)).
+Implements the **Search** product area (10 file(s) detected; classified by weak heuristic (low confidence)).
 
 ## Main files
 
@@ -20,7 +20,6 @@ Implements the **Search** product area (11 file(s) detected; classified by weak 
 - `code_review_graph/memory/metadata.py`
 - `code_review_graph/memory/models.py`
 - `code_review_graph/memory/scanner.py`
-- `code_review_graph/memory/telemetry.py`
 
 ## Related tests
 
@@ -36,15 +35,15 @@ Implements the **Search** product area (11 file(s) detected; classified by weak 
 - `tests/test_memory_generator.py`
 - `tests/test_memory_generator_vocab.py`
 - `tests/test_memory_graph_bridge.py`
+- `tests/test_memory_hooks.py`
 - `tests/test_memory_imports.py`
 - `tests/test_memory_integration.py`
 - `tests/test_memory_lookup.py`
 - `tests/test_memory_lookup_semantic.py`
 - `tests/test_memory_overrides.py`
+- `tests/test_memory_pack_cache.py`
 - `tests/test_memory_phase4_graph_leverage.py`
-- `tests/test_memory_phase5_perf_ux.py`
-- `tests/test_memory_quality_verdict.py`
-- _…and 6 more_
+- _…and 8 more_
 
 ## Warnings and notes
 

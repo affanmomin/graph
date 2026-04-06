@@ -33,14 +33,14 @@ Implements the **Graph** product area (7 file(s) detected; classified by weak he
 - `tests/test_memory_generator.py`
 - `tests/test_memory_generator_vocab.py`
 - `tests/test_memory_graph_bridge.py`
+- `tests/test_memory_hooks.py`
 - `tests/test_memory_imports.py`
 - `tests/test_memory_integration.py`
 - `tests/test_memory_lookup.py`
 - `tests/test_memory_lookup_semantic.py`
 - `tests/test_memory_overrides.py`
-- `tests/test_memory_phase4_graph_leverage.py`
-- `tests/test_memory_phase5_perf_ux.py`
-- _…and 7 more_
+- `tests/test_memory_pack_cache.py`
+- _…and 9 more_
 
 ## Warnings and notes
 
